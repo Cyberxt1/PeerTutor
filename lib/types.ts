@@ -82,3 +82,18 @@ export interface Review {
   comment: string;
   createdAt: Date;
 }
+
+export type PlatformUpdateCategory = 'announcement' | 'coming-soon' | 'maintenance' | 'feature';
+
+export type PlatformUpdateAudience = 'all' | 'students' | 'tutors';
+
+export interface PlatformUpdate {
+  id: string;
+  title: string;
+  message: string;
+  category: PlatformUpdateCategory;
+  audience: PlatformUpdateAudience;
+  createdAt: Date;
+  createdByEmail: string;
+  active: boolean;
+}

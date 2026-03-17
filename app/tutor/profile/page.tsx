@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertCircle, CheckCircle2, Loader2, Mail, Phone, Plus, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { isAdminUser } from '@/lib/platform';
 
 export default function TutorProfilePage() {
   const {
@@ -22,6 +23,13 @@ export default function TutorProfilePage() {
     refreshUser,
   } = useApp();
   const tutorProfile = currentUser ? getTutorByUserId(currentUser.id) : undefined;
+
+  useEffect(() => {
+    if (currentUser && isAdminUser(currentUser)) {
+      setMessageType('error');
+      setMessage('The configured admin account cannot be listed as a tutor.');
+    }
+  }, [currentUser]);
 
   const existingCourses = useMemo(() => {
     if (!tutorProfile) return [];
@@ -57,6 +65,19 @@ export default function TutorProfilePage() {
     setEmail(currentUser.email || '');
     setPhone(currentUser.phone || '');
   }, [currentUser, existingCourses, tutorProfile]);
+
+  if (currentUser && isAdminUser(currentUser)) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            The configured admin account cannot have a public tutor profile.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   const handleAddCourse = () => {
     if (!courseCode.trim() || !courseName.trim()) {
@@ -139,7 +160,9 @@ export default function TutorProfilePage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Tutor profile not found. Please contact support.
+            {currentUser && isAdminUser(currentUser)
+              ? 'The configured admin account cannot have a public tutor profile.'
+              : 'Tutor profile not found. Please contact support.'}
           </AlertDescription>
         </Alert>
       </div>

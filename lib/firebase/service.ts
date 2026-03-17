@@ -27,10 +27,11 @@ import {
 import { auth, db, isFirebaseConfigured } from '@/lib/firebase/client';
 import { createFallbackAvatar } from '@/lib/app-data';
 import { canBookingBeCompleted, hasBookingConflict, isSessionWithinAvailability } from '@/lib/booking';
-import { ADMIN_EMAIL, DEFAULT_PLATFORM_SETTINGS, normalizeEmail, type PlatformSettings } from '@/lib/platform';
+import { ADMIN_EMAIL, DEFAULT_PLATFORM_SETTINGS, isAdminEmail, normalizeEmail, type PlatformSettings } from '@/lib/platform';
 import type {
   AvailabilitySlot,
   Booking,
+  PlatformUpdate,
   Review,
   TutorCourse,
   TutorRecord,
@@ -190,7 +191,7 @@ function mapTutorProfile(id: string, data: Record<string, unknown>): StoredTutor
     bio:
       typeof data.bio === 'string' && data.bio
         ? data.bio
-        : 'Tell students what you can help them achieve and how you like to teach.',
+        : 'Oops! This Tutor forgot to craft a bio.',
     subjects: Array.isArray(data.subjects) ? data.subjects.filter((subject): subject is string => typeof subject === 'string') : [],
     courses,
     hourlyRate: typeof data.hourlyRate === 'number' ? data.hourlyRate : 2000,
@@ -236,6 +237,22 @@ function mapReview(id: string, data: Record<string, unknown>): Review {
     rating: typeof data.rating === 'number' ? data.rating : 0,
     comment: typeof data.comment === 'string' ? data.comment : '',
     createdAt: parseTimestamp(data.createdAt),
+  };
+}
+
+function mapPlatformUpdate(id: string, data: Record<string, unknown>): PlatformUpdate {
+  return {
+    id,
+    title: typeof data.title === 'string' ? data.title : 'Platform update',
+    message: typeof data.message === 'string' ? data.message : '',
+    category:
+      data.category === 'coming-soon' || data.category === 'maintenance' || data.category === 'feature'
+        ? data.category
+        : 'announcement',
+    audience: data.audience === 'students' || data.audience === 'tutors' ? data.audience : 'all',
+    createdAt: parseTimestamp(data.createdAt),
+    createdByEmail: typeof data.createdByEmail === 'string' ? data.createdByEmail : '',
+    active: typeof data.active === 'boolean' ? data.active : true,
   };
 }
 
@@ -286,11 +303,13 @@ export function buildTutorRecords(
 
 async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, role: UserRole) {
   assertConfigured();
+  const isAdminAccount = isAdminEmail(firebaseUser.email);
+  const storedRole: UserRole = isAdminAccount ? 'student' : role;
 
   const userDoc = {
     name,
     email: firebaseUser.email || '',
-    role,
+    role: storedRole,
     profileImage: createFallbackAvatar(name),
     bio: '',
     phone: '',
@@ -299,14 +318,14 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
 
   await setDoc(doc(db!, 'users', firebaseUser.uid), userDoc);
 
-  if (role === 'tutor') {
+  if (storedRole === 'tutor') {
     await setDoc(doc(db!, 'tutorProfiles', firebaseUser.uid), {
       userId: firebaseUser.uid,
       displayName: name,
       email: firebaseUser.email || '',
       phone: '',
       profileImage: createFallbackAvatar(name),
-      bio: 'Tell students what you can help them achieve and how you like to teach.',
+      bio: 'Oops! This Tutor forgot to craft a bio.',
       subjects: [],
       courses: [],
       hourlyRate: 2000,
@@ -434,6 +453,22 @@ export function subscribeToPlatformSettings(
   );
 }
 
+export function subscribeToPlatformUpdates(
+  callback: (updates: PlatformUpdate[]) => void,
+  onError?: (message: string) => void
+): Unsubscribe {
+  assertConfigured();
+  return onSnapshot(
+    query(collection(db!, 'platformUpdates'), orderBy('createdAt', 'desc')),
+    (snapshot) => {
+      callback(snapshot.docs.map((docSnapshot) => mapPlatformUpdate(docSnapshot.id, docSnapshot.data())));
+    },
+    (error) => {
+      onError?.(getSnapshotErrorMessage(error, 'platform updates'));
+    },
+  );
+}
+
 export async function getPlatformSettingsRecord() {
   assertConfigured();
   const snapshot = await getDoc(doc(db!, 'platform', 'config'));
@@ -521,6 +556,10 @@ export async function updateUserProfileRecord(
 export async function switchUserRoleRecord(user: User, role: UserRole) {
   assertConfigured();
 
+  if (isAdminEmail(user.email)) {
+    throw new Error('The configured admin account cannot switch into tutor or learner mode.');
+  }
+
   await updateDoc(doc(db!, 'users', user.id), { role });
 
   const tutorProfileRef = doc(db!, 'tutorProfiles', user.id);
@@ -533,7 +572,7 @@ export async function switchUserRoleRecord(user: User, role: UserRole) {
       email: user.email,
       phone: user.phone || '',
       profileImage: user.profileImage || createFallbackAvatar(user.name),
-      bio: user.bio || 'Tell students what you can help them achieve and how you like to teach.',
+      bio: user.bio || 'Oops! This Tutor forgot to craft a bio.',
       subjects: [],
       courses: [],
       hourlyRate: 2000,
@@ -562,6 +601,10 @@ export async function updateTutorProfileRecord(
   }
 ) {
   assertConfigured();
+
+  if (isAdminEmail(user.email)) {
+    throw new Error('The configured admin account cannot be listed as a tutor.');
+  }
 
   const tutorProfileRef = doc(db!, 'tutorProfiles', user.id);
   const payload = {
@@ -635,6 +678,10 @@ export async function createBookingRecord(
   }
 
   const tutorProfile = mapTutorProfile(tutorProfileSnapshot.id, tutorProfileSnapshot.data());
+
+  if (isAdminEmail(auth?.currentUser?.email) || isAdminEmail(tutorProfile.email)) {
+    throw new Error('The admin account cannot book or receive tutoring sessions.');
+  }
 
   if (!tutorProfile.isAvailable) {
     throw new Error('This tutor is not accepting bookings right now.');
@@ -754,6 +801,34 @@ export async function updatePlatformSettingsRecord(settings: PlatformSettings) {
 export async function sendPasswordResetLinkRecord(email: string) {
   assertConfigured();
   await sendPasswordResetEmail(auth!, email.trim());
+}
+
+export async function createPlatformUpdateRecord(update: {
+  title: string;
+  message: string;
+  category: PlatformUpdate['category'];
+  audience: PlatformUpdate['audience'];
+}) {
+  assertConfigured();
+
+  const currentEmail = normalizeEmail(auth?.currentUser?.email);
+  if (!isAdminEmail(currentEmail)) {
+    throw new Error('Only the configured admin can post platform updates.');
+  }
+
+  const payload = {
+    title: update.title.trim(),
+    message: update.message.trim(),
+    category: update.category,
+    audience: update.audience,
+    active: true,
+    createdByEmail: currentEmail,
+    createdAt: serverTimestamp(),
+  };
+
+  const docRef = await addDoc(collection(db!, 'platformUpdates'), payload);
+  const created = await getDoc(docRef);
+  return mapPlatformUpdate(created.id, created.data() || payload);
 }
 
 export async function createReviewRecord(

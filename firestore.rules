@@ -19,14 +19,24 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/platform/config).data.adminEmail == request.auth.token.email;
     }
 
+    function isConfiguredAdminEmail(email) {
+      return email is string
+        && exists(/databases/$(database)/documents/platform/config)
+        && get(/databases/$(database)/documents/platform/config).data.adminEmail is string
+        && email == get(/databases/$(database)/documents/platform/config).data.adminEmail;
+    }
+
     match /users/{userId} {
       allow create: if signedIn() && request.auth.uid == userId;
-      allow read: if signedIn();
+      allow read: if signedIn()
+        && (request.auth.uid == userId || !isConfiguredAdminEmail(resource.data.email) || isAdmin());
       allow update, delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /tutorProfiles/{userId} {
-      allow read: if true;
+      allow read: if request.auth != null && request.auth.uid == userId
+        || !isConfiguredAdminEmail(resource.data.email)
+        || isAdmin();
       allow create, update, delete: if signedIn() && request.auth.uid == userId;
     }
 
@@ -56,6 +66,11 @@ service cloud.firestore {
       allow delete: if verifiedEmailUser()
         && resource.data.adminEmail is string
         && resource.data.adminEmail == request.auth.token.email;
+    }
+
+    match /platformUpdates/{updateId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
     }
   }
 }

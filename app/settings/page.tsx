@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Switch } from '@/components/ui/switch';
+import { isAdminUser } from '@/lib/platform';
 import { AlertCircle, ArrowRightLeft, BookOpen, CheckCircle2, Loader2, MoonStar, UserRound } from 'lucide-react';
 
 const MODE_SWITCH_NOTICE_KEY = 'campustutor-mode-switch-notice';
@@ -37,6 +38,12 @@ export default function SettingsPage() {
       router.push('/auth/login');
     }
   }, [currentUser, isLoading, router]);
+
+  useEffect(() => {
+    if (currentUser && isAdminUser(currentUser)) {
+      router.replace('/addmean');
+    }
+  }, [currentUser, router]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -145,6 +152,7 @@ export default function SettingsPage() {
   }
 
   const isTutor = currentUser.role === 'tutor';
+  const isAdmin = isAdminUser(currentUser);
   const isDarkMode = resolvedTheme === 'dark';
 
   return (
@@ -286,9 +294,11 @@ export default function SettingsPage() {
 
               <Card className="border-primary/20 bg-primary/5">
                 <CardHeader>
-                  <CardTitle>{isTutor ? 'Want to learn too?' : 'Ready to tutor too?'}</CardTitle>
+                  <CardTitle>{isAdmin ? 'Admin Access Only' : isTutor ? 'Want to learn too?' : 'Ready to tutor too?'}</CardTitle>
                   <CardDescription>
-                    {isTutor
+                    {isAdmin
+                      ? 'The configured admin account stays outside the tutor and learner marketplace.'
+                      : isTutor
                       ? 'Switch into learner mode and start booking support from other tutors.'
                       : 'Switch into tutor mode and set up your tutoring profile with the same account.'}
                   </CardDescription>
@@ -297,28 +307,38 @@ export default function SettingsPage() {
                   <div className="rounded-xl border border-primary/15 bg-background/70 p-4">
                     <div className="flex items-center gap-3 mb-2">
                       <BookOpen className="h-5 w-5 text-primary" />
-                      <p className="font-medium text-foreground">{isTutor ? 'Learn on CampusTutor' : 'Tutor on CampusTutor'}</p>
+                      <p className="font-medium text-foreground">
+                        {isAdmin ? 'Use the Admin Control Center' : isTutor ? 'Learn on CampusTutor' : 'Tutor on CampusTutor'}
+                      </p>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {isTutor
+                      {isAdmin
+                        ? 'This account can manage the platform, post updates, and review users, but it cannot become a tutor or book tutors.'
+                        : isTutor
                         ? 'You will move into learner mode and can immediately browse tutors and request sessions.'
                         : 'You will move into tutor mode, get a tutor profile if you do not already have one, and can start setting up what you teach.'}
                     </p>
                   </div>
 
-                  <Button onClick={() => void handleRoleSwitch()} className="w-full bg-primary hover:bg-primary/90" disabled={loading || switching}>
-                    {switching ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Switching...
-                      </>
-                    ) : (
-                      <>
-                        <ArrowRightLeft className="mr-2 h-4 w-4" />
-                        {isTutor ? 'Learn' : 'Tutor'}
-                      </>
-                    )}
-                  </Button>
+                  {isAdmin ? (
+                    <Button asChild className="w-full bg-primary hover:bg-primary/90">
+                      <Link href="/addmean">Open Admin Control Center</Link>
+                    </Button>
+                  ) : (
+                    <Button onClick={() => void handleRoleSwitch()} className="w-full bg-primary hover:bg-primary/90" disabled={loading || switching}>
+                      {switching ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Switching...
+                        </>
+                      ) : (
+                        <>
+                          <ArrowRightLeft className="mr-2 h-4 w-4" />
+                          {isTutor ? 'Learn' : 'Tutor'}
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </div>

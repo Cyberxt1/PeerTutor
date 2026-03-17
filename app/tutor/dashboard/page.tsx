@@ -5,8 +5,11 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useApp } from '@/lib/context';
+import PlatformUpdates from '@/components/dashboard/platform-updates';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import MiniGuide from '@/components/dashboard/mini-guide';
+import { isAdminUser } from '@/lib/platform';
 import { Star, Calendar, Users, Zap, CheckCircle, Clock, TrendingUp } from 'lucide-react';
 
 const dashboardTabs = ['overview', 'sessions', 'students', 'earnings'] as const;
@@ -22,6 +25,7 @@ const isDashboardTab = (value: string | null): value is DashboardTab => {
 export default function TutorDashboard() {
   const {
     currentUser,
+    platformUpdates,
     getBookings,
     getCourseLabel,
     getReviews,
@@ -40,6 +44,12 @@ export default function TutorDashboard() {
     const tab = searchParams.get('tab');
     setActiveTab(isDashboardTab(tab) ? tab : 'overview');
   }, [searchParams]);
+
+  useEffect(() => {
+    if (currentUser && isAdminUser(currentUser)) {
+      router.replace('/addmean');
+    }
+  }, [currentUser, router]);
 
   useEffect(() => {
     const modeNotice = sessionStorage.getItem(MODE_SWITCH_NOTICE_KEY);
@@ -117,6 +127,29 @@ export default function TutorDashboard() {
         <h1 className="text-4xl font-bold text-foreground mb-2">Welcome, {currentUser?.name}!</h1>
         <p className="text-muted-foreground">Manage your tutoring sessions and student interactions</p>
       </div>
+
+      {currentUser && (
+        <div className="mb-8">
+          <MiniGuide
+            userId={currentUser.id}
+            role={currentUser.role}
+            createdAt={currentUser.createdAt}
+            title="Here is the fastest way to get started as a tutor"
+            description="This short guide helps new tutors get comfortable with the platform during their first few days."
+            steps={[
+              'Open your tutor profile and add your bio, courses, rate, and availability so students can understand what you teach.',
+              'Check booking requests often from the overview tab and confirm only the sessions that fit your schedule.',
+              'Use your dashboard to track completed sessions, student reviews, and earnings as you start teaching.',
+            ]}
+          />
+        </div>
+      )}
+
+      {currentUser && (
+        <div className="mb-8">
+          <PlatformUpdates updates={platformUpdates} role={currentUser.role} />
+        </div>
+      )}
 
       <div className="grid md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (

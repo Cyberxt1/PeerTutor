@@ -2,17 +2,28 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useApp } from '@/lib/context';
+import PlatformUpdates from '@/components/dashboard/platform-updates';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import MiniGuide from '@/components/dashboard/mini-guide';
+import { isAdminUser } from '@/lib/platform';
 import { Star, Calendar, Book, CheckCircle, Clock } from 'lucide-react';
 
 const MODE_SWITCH_NOTICE_KEY = 'campustutor-mode-switch-notice';
 
 export default function StudentDashboard() {
-  const { currentUser, reviews, getBookings, getCourseLabel, getTutorById } = useApp();
+  const { currentUser, reviews, platformUpdates, getBookings, getCourseLabel, getTutorById } = useApp();
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'sessions' | 'reviews'>('overview');
+  const router = useRouter();
+
+  useEffect(() => {
+    if (currentUser && isAdminUser(currentUser)) {
+      router.replace('/addmean');
+    }
+  }, [currentUser, router]);
 
   useEffect(() => {
     const modeNotice = sessionStorage.getItem(MODE_SWITCH_NOTICE_KEY);
@@ -53,6 +64,29 @@ export default function StudentDashboard() {
         <h1 className="text-4xl font-bold text-foreground mb-2">Welcome back, {currentUser?.name}!</h1>
         <p className="text-muted-foreground">Manage your tutoring sessions and track your progress</p>
       </div>
+
+      {currentUser && (
+        <div className="mb-8">
+          <MiniGuide
+            userId={currentUser.id}
+            role={currentUser.role}
+            createdAt={currentUser.createdAt}
+            title="Here is the fastest way to get started as a learner"
+            description="This short guide appears for brand new accounts so it is easier to settle in and make your first booking."
+            steps={[
+              'Browse tutors and open a profile that matches the course or subject you need help with.',
+              'Send a booking request with your preferred date and time, then watch for confirmation in your bookings tab.',
+              'After your session is completed, leave a review and track your learning hours from this dashboard.',
+            ]}
+          />
+        </div>
+      )}
+
+      {currentUser && (
+        <div className="mb-8">
+          <PlatformUpdates updates={platformUpdates} role={currentUser.role} />
+        </div>
+      )}
 
       <div className="grid md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (

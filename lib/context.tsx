@@ -7,6 +7,7 @@ import { DEFAULT_PLATFORM_SETTINGS, isAdminUser, type PlatformSettings } from '@
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import {
   createBookingRecord,
+  createPlatformUpdateRecord,
   createReviewRecord,
   buildTutorRecords,
   getCurrentUserProfile,
@@ -17,6 +18,7 @@ import {
   subscribeToAuth,
   subscribeToAllBookings,
   subscribeToBookings,
+  subscribeToPlatformUpdates,
   subscribeToPlatformSettings,
   subscribeToReviews,
   subscribeToTutorProfiles,
@@ -41,6 +43,7 @@ import {
 import type {
   AvailabilitySlot,
   Booking,
+  PlatformUpdate,
   Review,
   Subject,
   TutorCourse,
@@ -60,6 +63,7 @@ interface AppContextType {
   tutors: TutorRecord[];
   bookings: Booking[];
   reviews: Review[];
+  platformUpdates: PlatformUpdate[];
   login: (email: string, password: string) => Promise<User>;
   signup: (name: string, email: string, password: string, role: UserRole) => Promise<User>;
   logout: () => Promise<void>;
@@ -87,6 +91,12 @@ interface AppContextType {
   cancelBooking: (bookingId: string) => Promise<Booking>;
   completeBooking: (bookingId: string) => Promise<Booking>;
   createReview: (bookingId: string, tutorId: string, rating: number, comment: string) => Promise<Review>;
+  createPlatformUpdate: (update: {
+    title: string;
+    message: string;
+    category: PlatformUpdate['category'];
+    audience: PlatformUpdate['audience'];
+  }) => Promise<PlatformUpdate>;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => Promise<PlatformSettings>;
   sendPasswordResetLink: (email: string) => Promise<void>;
   getTutorById: (tutorId: string) => TutorRecord | undefined;
@@ -125,6 +135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tutorProfiles, setTutorProfiles] = useState<StoredTutorProfile[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [platformUpdates, setPlatformUpdates] = useState<PlatformUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -164,6 +175,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!isFirebaseConfigured) return undefined;
+    return subscribeToPlatformUpdates(setPlatformUpdates);
+  }, []);
+
+  useEffect(() => {
     if (!isFirebaseConfigured) {
       setPlatformSettings(DEFAULT_PLATFORM_SETTINGS);
       return undefined;
@@ -185,8 +201,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return subscribeToBookings(currentUser.id, setBookings);
   }, [currentUser]);
 
-  const tutors = useMemo(() => buildTutorRecords(tutorProfiles, users, reviews), [tutorProfiles, users, reviews]);
   const isAdmin = useMemo(() => isAdminUser(currentUser), [currentUser]);
+  const visibleUsers = useMemo(
+    () => (isAdmin ? users : users.filter((user) => !isAdminUser(user))),
+    [isAdmin, users]
+  );
+  const visibleTutorProfiles = useMemo(
+    () =>
+      tutorProfiles.filter(
+        (profile) =>
+          !isAdminUser({
+            id: profile.userId,
+            name: profile.displayName,
+            email: profile.email,
+            role: 'tutor',
+            createdAt: profile.createdAt,
+          })
+      ),
+    [tutorProfiles]
+  );
+  const tutors = useMemo(
+    () => buildTutorRecords(visibleTutorProfiles, visibleUsers, reviews),
+    [reviews, visibleTutorProfiles, visibleUsers]
+  );
 
   const contextValue = useMemo<AppContextType>(() => {
     return {
@@ -196,10 +233,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isFirebaseConfigured,
       platformSettings,
       subjects: defaultSubjects,
-      users,
+      users: visibleUsers,
       tutors,
       bookings,
       reviews,
+      platformUpdates,
       async login(email, password) {
         try {
           const user = await loginWithEmail(email, password);
@@ -320,6 +358,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw new Error(getReadableFirebaseError(error));
         }
       },
+      async createPlatformUpdate(update) {
+        if (!currentUser || !isAdminUser(currentUser)) {
+          throw new Error('Only the configured admin can post platform updates.');
+        }
+
+        try {
+          return await createPlatformUpdateRecord(update);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
       async updatePlatformSettings(settings) {
         if (!currentUser || !isAdminUser(currentUser)) {
           throw new Error('Only the configured admin can update platform settings.');
@@ -369,10 +418,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return getReviewsForTutor(reviews, tutorId);
       },
       getUserById(userId) {
-        return getUserById(users, userId);
+        return getUserById(visibleUsers, userId);
       },
     };
-  }, [bookings, currentUser, isAdmin, isLoading, platformSettings, reviews, tutors, users]);
+  }, [bookings, currentUser, isAdmin, isLoading, platformSettings, platformUpdates, reviews, tutors, users, visibleUsers]);
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }
