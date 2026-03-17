@@ -13,7 +13,7 @@ export default function TutorProfilePage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
-  const { currentUser, getTutorById, getReviews, getTutorCourseOptions, createBooking } = useApp();
+  const { currentUser, getTutorById, getReviews, getTutorCourseOptions, createBooking, platformSettings } = useApp();
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
@@ -91,6 +91,16 @@ export default function TutorProfilePage() {
       <Header />
       <main className="min-h-screen bg-gradient-to-b from-background to-muted/20">
         <div className="max-w-4xl mx-auto px-4 py-8">
+          {!platformSettings.allowTutorBrowsing && (
+            <Card className="mb-6 border-border/60 bg-card/90">
+              <CardContent className="py-6">
+                <p className="text-sm text-muted-foreground">
+                  Tutor browsing is temporarily paused by the administrator, so profile access is limited right now.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           <Button variant="outline" size="sm" asChild className="mb-6">
             <Link href="/search-tutors">
               <ArrowLeft className="w-4 h-4 mr-2" />
@@ -251,9 +261,18 @@ export default function TutorProfilePage() {
                           setShowBookingModal(!showBookingModal);
                         }}
                         className="w-full bg-primary hover:bg-primary/90"
-                        disabled={tutorCourses.length === 0 || !tutor.isAvailable}
+                        disabled={
+                          tutorCourses.length === 0 ||
+                          !tutor.isAvailable ||
+                          !platformSettings.allowTutorBrowsing ||
+                          !platformSettings.allowBookings
+                        }
                       >
-                        {!tutor.isAvailable
+                        {!platformSettings.allowTutorBrowsing
+                          ? 'Tutor Browsing Paused'
+                          : !platformSettings.allowBookings
+                            ? 'Bookings Paused'
+                          : !tutor.isAvailable
                           ? 'Currently Unavailable'
                           : tutorCourses.length === 0
                             ? 'No Courses Available'
@@ -261,6 +280,12 @@ export default function TutorProfilePage() {
                               ? 'Close Booking'
                               : 'Book Session'}
                       </Button>
+
+                      {!platformSettings.allowBookings && (
+                        <p className="text-sm text-center text-muted-foreground">
+                          The admin has temporarily paused new booking requests.
+                        </p>
+                      )}
 
                       {showBookingModal && (
                         <div className="space-y-3 pt-4 border-t border-border">

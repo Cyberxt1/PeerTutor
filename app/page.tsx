@@ -13,7 +13,7 @@ import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 
 export default function Home() {
-  const { currentUser, isLoading } = useApp();
+  const { currentUser, isAdmin, isLoading, platformSettings } = useApp();
   const mainRef = useRef<HTMLElement | null>(null);
   const featuresRef = useRef<HTMLElement | null>(null);
   const [showMobileScrollPrompt, setShowMobileScrollPrompt] = useState(false);
@@ -24,8 +24,13 @@ export default function Home() {
   useEffect(() => {
     if (isLoading || !currentUser) return;
 
+    if (isAdmin) {
+      router.replace('/addmean');
+      return;
+    }
+
     router.replace(currentUser.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
-  }, [currentUser, isLoading, router]);
+  }, [currentUser, isAdmin, isLoading, router]);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem(LANDING_THEME_STORAGE_KEY);
@@ -253,8 +258,17 @@ export default function Home() {
                     </Link>
                   </Button>
                 ) : (
-                  <Button size="lg" asChild className="bg-primary hover:bg-primary/90">
-                    <Link href="/auth/login">Find Tutors</Link>
+                  <Button
+                    size="lg"
+                    asChild={platformSettings.allowTutorBrowsing}
+                    className="bg-primary hover:bg-primary/90"
+                    disabled={!platformSettings.allowTutorBrowsing}
+                  >
+                    {platformSettings.allowTutorBrowsing ? (
+                      <Link href="/auth/login">Find Tutors</Link>
+                    ) : (
+                      <span>Tutor Browsing Paused</span>
+                    )}
                   </Button>
                 )}
               </div>
@@ -408,8 +422,17 @@ export default function Home() {
                     <Link href="/search-tutors">Browse Tutors</Link>
                   </Button>
                 ) : (
-                  <Button size="lg" asChild className="bg-primary hover:bg-primary/90">
-                    <Link href="/auth/login">Browse Tutors</Link>
+                  <Button
+                    size="lg"
+                    asChild={platformSettings.allowTutorBrowsing}
+                    className="bg-primary hover:bg-primary/90"
+                    disabled={!platformSettings.allowTutorBrowsing}
+                  >
+                    {platformSettings.allowTutorBrowsing ? (
+                      <Link href="/auth/login">Browse Tutors</Link>
+                    ) : (
+                      <span>Tutor Browsing Paused</span>
+                    )}
                   </Button>
                 )}
               </CardContent>

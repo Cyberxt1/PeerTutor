@@ -18,6 +18,7 @@ import {
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateEmail,
@@ -26,6 +27,7 @@ import {
 import { auth, db, isFirebaseConfigured } from '@/lib/firebase/client';
 import { createFallbackAvatar } from '@/lib/app-data';
 import { canBookingBeCompleted, hasBookingConflict, isSessionWithinAvailability } from '@/lib/booking';
+import { ADMIN_EMAIL, DEFAULT_PLATFORM_SETTINGS, normalizeEmail, type PlatformSettings } from '@/lib/platform';
 import type {
   AvailabilitySlot,
   Booking,
@@ -83,6 +85,51 @@ function parseTimestamp(value: unknown) {
   if (value instanceof Date) return value;
   if (typeof value === 'string' || typeof value === 'number') return new Date(value);
   return new Date();
+}
+
+function mapPlatformSettings(data: Record<string, unknown> | undefined): PlatformSettings {
+  return {
+    adminEmail:
+      typeof data?.adminEmail === 'string' && data.adminEmail.trim().length > 0
+        ? normalizeEmail(data.adminEmail)
+        : ADMIN_EMAIL,
+    allowNewSignups:
+      typeof data?.allowNewSignups === 'boolean'
+        ? data.allowNewSignups
+        : DEFAULT_PLATFORM_SETTINGS.allowNewSignups,
+    allowTutorBrowsing:
+      typeof data?.allowTutorBrowsing === 'boolean'
+        ? data.allowTutorBrowsing
+        : DEFAULT_PLATFORM_SETTINGS.allowTutorBrowsing,
+    allowBookings:
+      typeof data?.allowBookings === 'boolean'
+        ? data.allowBookings
+        : DEFAULT_PLATFORM_SETTINGS.allowBookings,
+    allowResources:
+      typeof data?.allowResources === 'boolean'
+        ? data.allowResources
+        : DEFAULT_PLATFORM_SETTINGS.allowResources,
+    showBrowseTutorsNav:
+      typeof data?.showBrowseTutorsNav === 'boolean'
+        ? data.showBrowseTutorsNav
+        : DEFAULT_PLATFORM_SETTINGS.showBrowseTutorsNav,
+    showAboutNav:
+      typeof data?.showAboutNav === 'boolean'
+        ? data.showAboutNav
+        : DEFAULT_PLATFORM_SETTINGS.showAboutNav,
+    showHowItWorksNav:
+      typeof data?.showHowItWorksNav === 'boolean'
+        ? data.showHowItWorksNav
+        : DEFAULT_PLATFORM_SETTINGS.showHowItWorksNav,
+    showContactNav:
+      typeof data?.showContactNav === 'boolean'
+        ? data.showContactNav
+        : DEFAULT_PLATFORM_SETTINGS.showContactNav,
+    showResourcesNav:
+      typeof data?.showResourcesNav === 'boolean'
+        ? data.showResourcesNav
+        : DEFAULT_PLATFORM_SETTINGS.showResourcesNav,
+  };
 }
 
 function mapUser(id: string, data: Record<string, unknown>): User {
@@ -355,6 +402,44 @@ export function subscribeToBookings(
   );
 }
 
+export function subscribeToAllBookings(
+  callback: (bookings: Booking[]) => void,
+  onError?: (message: string) => void
+): Unsubscribe {
+  assertConfigured();
+  return onSnapshot(
+    query(collection(db!, 'bookings'), orderBy('createdAt', 'desc')),
+    (snapshot) => {
+      callback(snapshot.docs.map((docSnapshot) => mapBooking(docSnapshot.id, docSnapshot.data())));
+    },
+    (error) => {
+      onError?.(getSnapshotErrorMessage(error, 'all bookings'));
+    },
+  );
+}
+
+export function subscribeToPlatformSettings(
+  callback: (settings: PlatformSettings) => void,
+  onError?: (message: string) => void
+): Unsubscribe {
+  assertConfigured();
+  return onSnapshot(
+    doc(db!, 'platform', 'config'),
+    (snapshot) => {
+      callback(mapPlatformSettings(snapshot.exists() ? snapshot.data() : undefined));
+    },
+    (error) => {
+      onError?.(getSnapshotErrorMessage(error, 'platform settings'));
+    }
+  );
+}
+
+export async function getPlatformSettingsRecord() {
+  assertConfigured();
+  const snapshot = await getDoc(doc(db!, 'platform', 'config'));
+  return mapPlatformSettings(snapshot.exists() ? snapshot.data() : undefined);
+}
+
 export async function loginWithEmail(email: string, password: string) {
   assertConfigured();
   const credentials = await signInWithEmailAndPassword(auth!, email, password);
@@ -372,6 +457,10 @@ export async function signupWithEmail(
   role: UserRole
 ) {
   assertConfigured();
+  const platformSettings = await getPlatformSettingsRecord();
+  if (!platformSettings.allowNewSignups) {
+    throw new Error('New account creation is temporarily disabled by the administrator.');
+  }
   const credentials = await createUserWithEmailAndPassword(auth!, email, password);
   await createUserDocument(credentials.user, name, role);
   const profile = await getCurrentUserProfile(credentials.user.uid);
@@ -516,6 +605,15 @@ export async function createBookingRecord(
   notes?: string
 ) {
   assertConfigured();
+  const platformSettings = await getPlatformSettingsRecord();
+
+  if (!platformSettings.allowBookings) {
+    throw new Error('Booking requests are temporarily disabled by the administrator.');
+  }
+
+  if (!platformSettings.allowTutorBrowsing) {
+    throw new Error('Tutor browsing is temporarily disabled by the administrator.');
+  }
 
   if (!(sessionDate instanceof Date) || Number.isNaN(sessionDate.getTime())) {
     throw new Error('Please choose a valid session date and time.');
@@ -638,6 +736,24 @@ export async function updateBookingStatusRecord(bookingId: string, status: Booki
     throw new Error('Booking not found.');
   }
   return mapBooking(snapshot.id, snapshot.data());
+}
+
+export async function updatePlatformSettingsRecord(settings: PlatformSettings) {
+  assertConfigured();
+
+  const payload: PlatformSettings = {
+    ...DEFAULT_PLATFORM_SETTINGS,
+    ...settings,
+    adminEmail: normalizeEmail(settings.adminEmail || ADMIN_EMAIL),
+  };
+
+  await setDoc(doc(db!, 'platform', 'config'), payload, { merge: true });
+  return payload;
+}
+
+export async function sendPasswordResetLinkRecord(email: string) {
+  assertConfigured();
+  await sendPasswordResetEmail(auth!, email.trim());
 }
 
 export async function createReviewRecord(

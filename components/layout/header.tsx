@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
 export default function Header({ variant = 'default' }: { variant?: 'default' | 'landing' }) {
-  const { currentUser, logout } = useApp();
+  const { currentUser, isAdmin, logout, platformSettings } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authPrompt, setAuthPrompt] = useState<'browse' | 'resources' | null>(null);
   const router = useRouter();
@@ -19,13 +19,21 @@ export default function Header({ variant = 'default' }: { variant?: 'default' | 
   const publicNavLinks =
     variant === 'landing'
       ? [
-          { href: '/about', label: 'About' },
-          { href: '/how-it-works', label: 'How It Works' },
-        ]
+          platformSettings.showAboutNav ? { href: '/about', label: 'About' } : null,
+          platformSettings.showHowItWorksNav ? { href: '/how-it-works', label: 'How It Works' } : null,
+          platformSettings.showContactNav ? { href: '/contact', label: 'Contact' } : null,
+          platformSettings.showResourcesNav && platformSettings.allowResources
+            ? { href: '/resources', label: 'Resources' }
+            : null,
+        ].filter((link): link is { href: string; label: string } => Boolean(link))
       : [
-          { href: '/search-tutors', label: 'Find Tutors' },
-          { href: '/resources', label: 'Resources' },
-        ];
+          platformSettings.allowTutorBrowsing && platformSettings.showBrowseTutorsNav
+            ? { href: '/search-tutors', label: 'Find Tutors' }
+            : null,
+          platformSettings.allowResources && platformSettings.showResourcesNav
+            ? { href: '/resources', label: 'Resources' }
+            : null,
+        ].filter((link): link is { href: string; label: string } => Boolean(link));
 
   useEffect(() => {
     if (!authPrompt) return;
@@ -82,15 +90,24 @@ export default function Header({ variant = 'default' }: { variant?: 'default' | 
               >
                 Dashboard
               </Link>
-              <Link href="/resources" className="text-foreground hover:text-primary transition">
-                Resources
-              </Link>
+              {platformSettings.allowResources && platformSettings.showResourcesNav && (
+                <Link href="/resources" className="text-foreground hover:text-primary transition">
+                  Resources
+                </Link>
+              )}
               <Link href={settingsPath} className="text-foreground hover:text-primary transition">
                 Settings
               </Link>
-              <Link href="/search-tutors" className="text-foreground hover:text-primary transition">
-                Find Tutors
-              </Link>
+              {platformSettings.allowTutorBrowsing && platformSettings.showBrowseTutorsNav && (
+                <Link href="/search-tutors" className="text-foreground hover:text-primary transition">
+                  Find Tutors
+                </Link>
+              )}
+              {isAdmin && (
+                <Link href="/addmean" className="text-foreground hover:text-primary transition">
+                  Admin
+                </Link>
+              )}
               <div className="flex items-center gap-4">
                 <span className="text-sm text-muted-foreground">{currentUser.name}</span>
                 <Button onClick={() => void handleLogout()} variant="outline" size="sm">
@@ -202,20 +219,33 @@ export default function Header({ variant = 'default' }: { variant?: 'default' | 
                 >
                   Settings
                 </Link>
-                <Link
-                  href="/resources"
-                  className="block py-2 text-foreground hover:text-primary transition"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Resources
-                </Link>
-                <Link
-                  href="/search-tutors"
-                  className="block py-2 text-foreground hover:text-primary transition"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Find Tutors
-                </Link>
+                {platformSettings.allowResources && platformSettings.showResourcesNav && (
+                  <Link
+                    href="/resources"
+                    className="block py-2 text-foreground hover:text-primary transition"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Resources
+                  </Link>
+                )}
+                {platformSettings.allowTutorBrowsing && platformSettings.showBrowseTutorsNav && (
+                  <Link
+                    href="/search-tutors"
+                    className="block py-2 text-foreground hover:text-primary transition"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Find Tutors
+                  </Link>
+                )}
+                {isAdmin && (
+                  <Link
+                    href="/addmean"
+                    className="block py-2 text-foreground hover:text-primary transition"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Admin
+                  </Link>
+                )}
                 <Button onClick={() => void handleLogout()} variant="outline" size="sm" className="w-full justify-center">
                   Logout
                 </Button>

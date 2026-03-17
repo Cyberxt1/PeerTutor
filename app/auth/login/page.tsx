@@ -10,6 +10,7 @@ import { useApp } from '@/lib/context';
 import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldLabel } from '@/components/ui/field';
+import { isAdminUser } from '@/lib/platform';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -22,6 +23,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (isLoading || !currentUser) return;
 
+    if (isAdminUser(currentUser)) {
+      router.replace('/addmean');
+      return;
+    }
+
     router.replace(currentUser.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
   }, [currentUser, isLoading, router]);
 
@@ -32,7 +38,9 @@ export default function LoginPage() {
 
     try {
       const signedInUser = await login(email, password);
-      router.replace(signedInUser.role === 'tutor' ? '/tutor/dashboard' : '/student/dashboard');
+      router.replace(
+        isAdminUser(signedInUser) ? '/addmean' : signedInUser.role === 'tutor' ? '/tutor/dashboard' : '/student/dashboard'
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
     } finally {

@@ -11,6 +11,7 @@ import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { isAdminUser } from '@/lib/platform';
 
 export default function SignupPage() {
   const [name, setName] = useState('');
@@ -20,11 +21,16 @@ export default function SignupPage() {
   const [role, setRole] = useState<'student' | 'tutor'>('student');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { currentUser, isLoading, isFirebaseConfigured, signup } = useApp();
+  const { currentUser, isLoading, isFirebaseConfigured, platformSettings, signup } = useApp();
   const router = useRouter();
 
   useEffect(() => {
     if (isLoading || !currentUser) return;
+
+    if (isAdminUser(currentUser)) {
+      router.replace('/addmean');
+      return;
+    }
 
     router.replace(currentUser.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
   }, [currentUser, isLoading, router]);
@@ -32,6 +38,11 @@ export default function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!platformSettings.allowNewSignups) {
+      setError('New account creation is temporarily disabled by the administrator.');
+      return;
+    }
 
     // Validation
     if (!name || !email || !password || !confirmPassword) {
@@ -53,7 +64,7 @@ export default function SignupPage() {
 
     try {
       const user = await signup(name, email, password, role);
-      router.replace(user.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
+      router.replace(isAdminUser(user) ? '/addmean' : user.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
     } finally {
@@ -92,6 +103,15 @@ export default function SignupPage() {
             </Alert>
           )}
 
+          {!platformSettings.allowNewSignups && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                New account creation is temporarily paused right now. Please try again later or contact support.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field>
               <FieldLabel>Full Name</FieldLabel>
@@ -101,7 +121,7 @@ export default function SignupPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                disabled={loading || !isFirebaseConfigured}
+                disabled={loading || !isFirebaseConfigured || !platformSettings.allowNewSignups}
               />
             </Field>
 
@@ -113,7 +133,7 @@ export default function SignupPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                disabled={loading || !isFirebaseConfigured}
+                disabled={loading || !isFirebaseConfigured || !platformSettings.allowNewSignups}
               />
             </Field>
 
@@ -123,6 +143,7 @@ export default function SignupPage() {
                 type="single"
                 value={role}
                 onValueChange={(value) => setRole((value as 'student' | 'tutor') || 'student')}
+                disabled={loading || !isFirebaseConfigured || !platformSettings.allowNewSignups}
               >
                 <ToggleGroupItem value="student" aria-label="Learn as student">
                   Learn
@@ -141,7 +162,7 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                disabled={loading || !isFirebaseConfigured}
+                disabled={loading || !isFirebaseConfigured || !platformSettings.allowNewSignups}
               />
             </Field>
 
@@ -153,14 +174,14 @@ export default function SignupPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                disabled={loading || !isFirebaseConfigured}
+                disabled={loading || !isFirebaseConfigured || !platformSettings.allowNewSignups}
               />
             </Field>
 
             <Button
               type="submit"
               className="w-full bg-primary hover:bg-primary/90"
-              disabled={loading || !isFirebaseConfigured}
+              disabled={loading || !isFirebaseConfigured || !platformSettings.allowNewSignups}
             >
               {loading ? (
                 <>
