@@ -15,7 +15,16 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-export const isFirebaseConfigured = Object.values(firebaseConfig).every(
+const requiredFirebaseKeys = [
+  firebaseConfig.apiKey,
+  firebaseConfig.authDomain,
+  firebaseConfig.projectId,
+  firebaseConfig.storageBucket,
+  firebaseConfig.messagingSenderId,
+  firebaseConfig.appId,
+];
+
+export const isFirebaseConfigured = requiredFirebaseKeys.every(
   (value) => typeof value === 'string' && value.trim().length > 0
 );
 

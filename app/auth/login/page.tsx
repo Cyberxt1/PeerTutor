@@ -66,7 +66,7 @@ export default function LoginPage() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Firebase is not configured yet. Add your Firebase keys to `.env.local` before using sign in.
+                Firebase is not configured yet. Add your `NEXT_PUBLIC_FIREBASE_*` values to your environment variables before using sign in.
               </AlertDescription>
             </Alert>
           )}
