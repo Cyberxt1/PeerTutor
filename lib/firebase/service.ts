@@ -29,6 +29,7 @@ import { createFallbackAvatar } from '@/lib/app-data';
 import { canBookingBeCompleted, hasBookingConflict, isSessionWithinAvailability } from '@/lib/booking';
 import { ADMIN_EMAIL, DEFAULT_PLATFORM_SETTINGS, isAdminEmail, normalizeEmail, type PlatformSettings } from '@/lib/platform';
 import type {
+  AccountStatus,
   AvailabilitySlot,
   Booking,
   PlatformUpdate,
@@ -36,6 +37,7 @@ import type {
   TutorCourse,
   TutorRecord,
   User,
+  UserNotification,
   UserRole,
 } from '@/lib/types';
 
@@ -139,6 +141,10 @@ function mapUser(id: string, data: Record<string, unknown>): User {
     name: typeof data.name === 'string' ? data.name : 'CampusTutor User',
     email: typeof data.email === 'string' ? data.email : '',
     role: data.role === 'tutor' ? 'tutor' : 'student',
+    accountStatus:
+      data.accountStatus === 'suspended' || data.accountStatus === 'deleted'
+        ? data.accountStatus
+        : 'active',
     profileImage:
       typeof data.profileImage === 'string' && data.profileImage
         ? data.profileImage
@@ -256,6 +262,18 @@ function mapPlatformUpdate(id: string, data: Record<string, unknown>): PlatformU
   };
 }
 
+function mapUserNotification(id: string, data: Record<string, unknown>): UserNotification {
+  return {
+    id,
+    userId: typeof data.userId === 'string' ? data.userId : '',
+    title: typeof data.title === 'string' ? data.title : 'Notification',
+    message: typeof data.message === 'string' ? data.message : '',
+    createdAt: parseTimestamp(data.createdAt),
+    createdByEmail: typeof data.createdByEmail === 'string' ? data.createdByEmail : '',
+    active: typeof data.active === 'boolean' ? data.active : true,
+  };
+}
+
 export function buildTutorRecords(
   profiles: StoredTutorProfile[],
   users: User[],
@@ -310,6 +328,7 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
     name,
     email: firebaseUser.email || '',
     role: storedRole,
+    accountStatus: 'active' as AccountStatus,
     profileImage: createFallbackAvatar(name),
     bio: '',
     phone: '',
@@ -469,6 +488,26 @@ export function subscribeToPlatformUpdates(
   );
 }
 
+export function subscribeToUserNotifications(
+  userId: string,
+  callback: (notifications: UserNotification[]) => void,
+  onError?: (message: string) => void
+): Unsubscribe {
+  assertConfigured();
+  return onSnapshot(
+    query(collection(db!, 'userNotifications'), where('userId', '==', userId)),
+    (snapshot) => {
+      const notifications = snapshot.docs
+        .map((docSnapshot) => mapUserNotification(docSnapshot.id, docSnapshot.data()))
+        .sort((firstNotification, secondNotification) => secondNotification.createdAt.getTime() - firstNotification.createdAt.getTime());
+      callback(notifications);
+    },
+    (error) => {
+      onError?.(getSnapshotErrorMessage(error, 'user notifications'));
+    },
+  );
+}
+
 export async function getPlatformSettingsRecord() {
   assertConfigured();
   const snapshot = await getDoc(doc(db!, 'platform', 'config'));
@@ -481,6 +520,14 @@ export async function loginWithEmail(email: string, password: string) {
   const profile = await getCurrentUserProfile(credentials.user.uid);
   if (!profile) {
     throw new Error('Your user profile could not be found.');
+  }
+  if (profile.accountStatus === 'suspended') {
+    await signOut(auth!);
+    throw new Error('This account has been suspended by the administrator.');
+  }
+  if (profile.accountStatus === 'deleted') {
+    await signOut(auth!);
+    throw new Error('This account has been removed from the platform by the administrator.');
   }
   return profile;
 }
@@ -798,9 +845,56 @@ export async function updatePlatformSettingsRecord(settings: PlatformSettings) {
   return payload;
 }
 
+export async function updateUserAccountStatusRecord(user: User, status: AccountStatus) {
+  assertConfigured();
+
+  if (!isAdminEmail(auth?.currentUser?.email)) {
+    throw new Error('Only the configured admin can manage user access.');
+  }
+
+  if (isAdminEmail(user.email)) {
+    throw new Error('The configured admin account cannot be suspended or deleted.');
+  }
+
+  await updateDoc(doc(db!, 'users', user.id), { accountStatus: status });
+
+  const tutorProfileRef = doc(db!, 'tutorProfiles', user.id);
+  const tutorProfileSnapshot = await getDoc(tutorProfileRef);
+  if (tutorProfileSnapshot.exists()) {
+    await updateDoc(tutorProfileRef, { isAvailable: false });
+  }
+
+  return {
+    ...user,
+    accountStatus: status,
+  };
+}
+
 export async function sendPasswordResetLinkRecord(email: string) {
   assertConfigured();
   await sendPasswordResetEmail(auth!, email.trim());
+}
+
+export async function createUserNotificationRecord(userId: string, title: string, message: string) {
+  assertConfigured();
+
+  const currentEmail = normalizeEmail(auth?.currentUser?.email);
+  if (!isAdminEmail(currentEmail)) {
+    throw new Error('Only the configured admin can send user notifications.');
+  }
+
+  const payload = {
+    userId,
+    title: title.trim(),
+    message: message.trim(),
+    createdByEmail: currentEmail,
+    createdAt: serverTimestamp(),
+    active: true,
+  };
+
+  const docRef = await addDoc(collection(db!, 'userNotifications'), payload);
+  const created = await getDoc(docRef);
+  return mapUserNotification(created.id, created.data() || payload);
 }
 
 export async function createPlatformUpdateRecord(update: {

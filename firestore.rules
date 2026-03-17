@@ -30,14 +30,17 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == userId;
       allow read: if signedIn()
         && (request.auth.uid == userId || !isConfiguredAdminEmail(resource.data.email) || isAdmin());
-      allow update, delete: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /tutorProfiles/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId
         || !isConfiguredAdminEmail(resource.data.email)
         || isAdmin();
-      allow create, update, delete: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /bookings/{bookingId} {
@@ -70,6 +73,11 @@ service cloud.firestore {
 
     match /platformUpdates/{updateId} {
       allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /userNotifications/{notificationId} {
+      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create, update, delete: if isAdmin();
     }
   }

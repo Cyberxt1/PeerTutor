@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useApp } from '@/lib/context';
 import PlatformUpdates from '@/components/dashboard/platform-updates';
+import UserNotifications from '@/components/dashboard/user-notifications';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import MiniGuide from '@/components/dashboard/mini-guide';
@@ -15,7 +16,7 @@ import { Star, Calendar, Book, CheckCircle, Clock } from 'lucide-react';
 const MODE_SWITCH_NOTICE_KEY = 'campustutor-mode-switch-notice';
 
 export default function StudentDashboard() {
-  const { currentUser, reviews, platformUpdates, getBookings, getCourseLabel, getTutorById } = useApp();
+  const { currentUser, reviews, platformUpdates, userNotifications, getBookings, getCourseLabel, getTutorById } = useApp();
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'sessions' | 'reviews'>('overview');
   const router = useRouter();
 
@@ -87,6 +88,10 @@ export default function StudentDashboard() {
           <PlatformUpdates updates={platformUpdates} role={currentUser.role} />
         </div>
       )}
+
+      <div className="mb-8">
+        <UserNotifications notifications={userNotifications} />
+      </div>
 
       <div className="grid md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (

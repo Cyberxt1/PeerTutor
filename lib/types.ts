@@ -1,10 +1,12 @@
 export type UserRole = 'student' | 'tutor';
+export type AccountStatus = 'active' | 'suspended' | 'deleted';
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  accountStatus?: AccountStatus;
   profileImage?: string;
   bio?: string;
   phone?: string;
@@ -93,6 +95,16 @@ export interface PlatformUpdate {
   message: string;
   category: PlatformUpdateCategory;
   audience: PlatformUpdateAudience;
+  createdAt: Date;
+  createdByEmail: string;
+  active: boolean;
+}
+
+export interface UserNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
   createdAt: Date;
   createdByEmail: string;
   active: boolean;

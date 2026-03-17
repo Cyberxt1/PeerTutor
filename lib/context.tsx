@@ -9,6 +9,7 @@ import {
   createBookingRecord,
   createPlatformUpdateRecord,
   createReviewRecord,
+  createUserNotificationRecord,
   buildTutorRecords,
   getCurrentUserProfile,
   loginWithEmail,
@@ -22,11 +23,13 @@ import {
   subscribeToPlatformSettings,
   subscribeToReviews,
   subscribeToTutorProfiles,
+  subscribeToUserNotifications,
   subscribeToUsers,
   switchUserRoleRecord,
   type StoredTutorProfile,
   updateBookingStatusRecord,
   updatePlatformSettingsRecord,
+  updateUserAccountStatusRecord,
   updateTutorProfileRecord,
   updateUserProfileRecord,
 } from '@/lib/firebase/service';
@@ -49,6 +52,7 @@ import type {
   TutorCourse,
   TutorRecord,
   User,
+  UserNotification,
   UserRole,
 } from '@/lib/types';
 
@@ -64,6 +68,7 @@ interface AppContextType {
   bookings: Booking[];
   reviews: Review[];
   platformUpdates: PlatformUpdate[];
+  userNotifications: UserNotification[];
   login: (email: string, password: string) => Promise<User>;
   signup: (name: string, email: string, password: string, role: UserRole) => Promise<User>;
   logout: () => Promise<void>;
@@ -97,6 +102,8 @@ interface AppContextType {
     category: PlatformUpdate['category'];
     audience: PlatformUpdate['audience'];
   }) => Promise<PlatformUpdate>;
+  updateUserAccountStatus: (user: User, status: 'active' | 'suspended' | 'deleted') => Promise<User>;
+  sendUserNotification: (userId: string, title: string, message: string) => Promise<UserNotification>;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => Promise<PlatformSettings>;
   sendPasswordResetLink: (email: string) => Promise<void>;
   getTutorById: (tutorId: string) => TutorRecord | undefined;
@@ -136,6 +143,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [platformUpdates, setPlatformUpdates] = useState<PlatformUpdate[]>([]);
+  const [userNotifications, setUserNotifications] = useState<UserNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -201,6 +209,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return subscribeToBookings(currentUser.id, setBookings);
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!isFirebaseConfigured || !currentUser || isAdminUser(currentUser)) {
+      setUserNotifications([]);
+      return undefined;
+    }
+
+    return subscribeToUserNotifications(currentUser.id, setUserNotifications);
+  }, [currentUser]);
+
   const isAdmin = useMemo(() => isAdminUser(currentUser), [currentUser]);
   const visibleUsers = useMemo(
     () => (isAdmin ? users : users.filter((user) => !isAdminUser(user))),
@@ -238,6 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       bookings,
       reviews,
       platformUpdates,
+      userNotifications,
       async login(email, password) {
         try {
           const user = await loginWithEmail(email, password);
@@ -369,6 +387,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw new Error(getReadableFirebaseError(error));
         }
       },
+      async updateUserAccountStatus(user, status) {
+        if (!currentUser || !isAdminUser(currentUser)) {
+          throw new Error('Only the configured admin can manage user access.');
+        }
+
+        try {
+          return await updateUserAccountStatusRecord(user, status);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async sendUserNotification(userId, title, message) {
+        if (!currentUser || !isAdminUser(currentUser)) {
+          throw new Error('Only the configured admin can send user notifications.');
+        }
+
+        try {
+          return await createUserNotificationRecord(userId, title, message);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
       async updatePlatformSettings(settings) {
         if (!currentUser || !isAdminUser(currentUser)) {
           throw new Error('Only the configured admin can update platform settings.');
@@ -421,7 +461,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return getUserById(visibleUsers, userId);
       },
     };
-  }, [bookings, currentUser, isAdmin, isLoading, platformSettings, platformUpdates, reviews, tutors, users, visibleUsers]);
+  }, [bookings, currentUser, isAdmin, isLoading, platformSettings, platformUpdates, reviews, tutors, userNotifications, users, visibleUsers]);
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }

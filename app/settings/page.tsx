@@ -40,12 +40,6 @@ export default function SettingsPage() {
   }, [currentUser, isLoading, router]);
 
   useEffect(() => {
-    if (currentUser && isAdminUser(currentUser)) {
-      router.replace('/addmean');
-    }
-  }, [currentUser, router]);
-
-  useEffect(() => {
     if (!currentUser) return;
 
     setName(currentUser.name || '');
@@ -154,6 +148,56 @@ export default function SettingsPage() {
   const isTutor = currentUser.role === 'tutor';
   const isAdmin = isAdminUser(currentUser);
   const isDarkMode = resolvedTheme === 'dark';
+
+  if (isAdmin) {
+    return (
+      <>
+        <Header />
+        <main className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+          <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Settings</p>
+              <h1 className="text-4xl font-bold text-foreground">Admin settings</h1>
+              <p className="text-muted-foreground">
+                The admin account only keeps appearance controls here. User management stays in the admin control center.
+              </p>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Appearance</CardTitle>
+                <CardDescription>Choose how your admin dashboard looks while you work.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <MoonStar className="h-5 w-5 text-primary" />
+                      <p className="font-medium text-foreground">Dark Mode</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Turn on a darker admin theme for low-light use.
+                    </p>
+                  </div>
+
+                  <Switch
+                    checked={isThemeReady ? isDarkMode : false}
+                    onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                    aria-label="Toggle dark mode"
+                    disabled={!isThemeReady}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Button asChild className="bg-primary hover:bg-primary/90">
+              <Link href="/addmean">Back to Admin Control Center</Link>
+            </Button>
+          </div>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>

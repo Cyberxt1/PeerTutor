@@ -124,6 +124,15 @@
   }
 }
 
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 .landing-shell {
   --background: #fafaf9;
   --foreground: #1a1a1a;

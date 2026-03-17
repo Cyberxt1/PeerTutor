@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useApp } from '@/lib/context';
 import PlatformUpdates from '@/components/dashboard/platform-updates';
+import UserNotifications from '@/components/dashboard/user-notifications';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import MiniGuide from '@/components/dashboard/mini-guide';
@@ -26,6 +27,7 @@ export default function TutorDashboard() {
   const {
     currentUser,
     platformUpdates,
+    userNotifications,
     getBookings,
     getCourseLabel,
     getReviews,
@@ -150,6 +152,10 @@ export default function TutorDashboard() {
           <PlatformUpdates updates={platformUpdates} role={currentUser.role} />
         </div>
       )}
+
+      <div className="mb-8">
+        <UserNotifications notifications={userNotifications} />
+      </div>
 
       <div className="grid md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
