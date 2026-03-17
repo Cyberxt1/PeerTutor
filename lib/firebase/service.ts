@@ -18,6 +18,7 @@ import {
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  reload,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
@@ -81,6 +82,19 @@ function assertConfigured() {
   if (!isFirebaseConfigured || !auth || !db) {
     throw new Error('Firebase is not configured yet.');
   }
+}
+
+async function refreshAuthUser(firebaseUser: FirebaseAuthUser | null) {
+  if (!firebaseUser) return null;
+
+  try {
+    await reload(firebaseUser);
+    await firebaseUser.getIdToken(true);
+  } catch {
+    return auth?.currentUser ?? firebaseUser;
+  }
+
+  return auth?.currentUser ?? firebaseUser;
 }
 
 function parseTimestamp(value: unknown) {
@@ -365,7 +379,9 @@ export async function getCurrentUserProfile(userId: string) {
 
 export function subscribeToAuth(callback: (firebaseUser: FirebaseAuthUser | null) => void): Unsubscribe {
   assertConfigured();
-  return onAuthStateChanged(auth!, callback);
+  return onAuthStateChanged(auth!, async (firebaseUser) => {
+    callback(await refreshAuthUser(firebaseUser));
+  });
 }
 
 export function subscribeToTutorProfiles(
@@ -517,7 +533,8 @@ export async function getPlatformSettingsRecord() {
 export async function loginWithEmail(email: string, password: string) {
   assertConfigured();
   const credentials = await signInWithEmailAndPassword(auth!, email, password);
-  const profile = await getCurrentUserProfile(credentials.user.uid);
+  const refreshedUser = await refreshAuthUser(credentials.user);
+  const profile = await getCurrentUserProfile((refreshedUser || credentials.user).uid);
   if (!profile) {
     throw new Error('Your user profile could not be found.');
   }

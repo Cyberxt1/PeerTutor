@@ -12,18 +12,24 @@ service cloud.firestore {
         && request.auth.token.email is string;
     }
 
+    function normalizedEmail(email) {
+      return email is string ? email.lower() : '';
+    }
+
     function isAdmin() {
       return verifiedEmailUser()
         && exists(/databases/$(database)/documents/platform/config)
         && get(/databases/$(database)/documents/platform/config).data.adminEmail is string
-        && get(/databases/$(database)/documents/platform/config).data.adminEmail == request.auth.token.email;
+        && normalizedEmail(get(/databases/$(database)/documents/platform/config).data.adminEmail)
+          == normalizedEmail(request.auth.token.email);
     }
 
     function isConfiguredAdminEmail(email) {
       return email is string
         && exists(/databases/$(database)/documents/platform/config)
         && get(/databases/$(database)/documents/platform/config).data.adminEmail is string
-        && email == get(/databases/$(database)/documents/platform/config).data.adminEmail;
+        && normalizedEmail(email)
+          == normalizedEmail(get(/databases/$(database)/documents/platform/config).data.adminEmail);
     }
 
     match /users/{userId} {
@@ -61,14 +67,15 @@ service cloud.firestore {
       allow read: if true;
       allow create: if verifiedEmailUser()
         && request.resource.data.adminEmail is string
-        && request.resource.data.adminEmail == request.auth.token.email;
+        && normalizedEmail(request.resource.data.adminEmail) == normalizedEmail(request.auth.token.email);
       allow update: if verifiedEmailUser()
         && resource.data.adminEmail is string
-        && resource.data.adminEmail == request.auth.token.email
-        && request.resource.data.adminEmail == resource.data.adminEmail;
+        && normalizedEmail(resource.data.adminEmail) == normalizedEmail(request.auth.token.email)
+        && request.resource.data.adminEmail is string
+        && normalizedEmail(request.resource.data.adminEmail) == normalizedEmail(resource.data.adminEmail);
       allow delete: if verifiedEmailUser()
         && resource.data.adminEmail is string
-        && resource.data.adminEmail == request.auth.token.email;
+        && normalizedEmail(resource.data.adminEmail) == normalizedEmail(request.auth.token.email);
     }
 
     match /platformUpdates/{updateId} {

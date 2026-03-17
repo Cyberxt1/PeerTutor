@@ -21,8 +21,25 @@ import {
 } from 'lucide-react';
 import Header from '@/components/layout/header';
 import { useApp } from '@/lib/context';
-import { ADMIN_EMAIL, type PlatformSettings } from '@/lib/platform';
-import type { PlatformUpdate, TutorRecord, User } from '@/lib/types';
+import { ADMIN_EMAIL, DEFAULT_PLATFORM_SETTINGS, type PlatformSettings } from '@/lib/platform';
+import {
+  fetchAdminDashboard,
+  postAdminPlatformUpdate,
+  saveAdminPlatformSettings,
+  sendAdminPasswordReset,
+  sendAdminUserNotification,
+  updateAdminUserStatus,
+  type AdminDashboardBooking,
+  type AdminDashboardPlatformUpdate,
+  type AdminDashboardReview,
+  type AdminDashboardTutorProfile,
+  type AdminDashboardUser,
+} from '@/lib/admin-client';
+import {
+  buildTutorRecords,
+  type StoredTutorProfile,
+} from '@/lib/firebase/service';
+import type { Booking, PlatformUpdate, Review, TutorRecord, User } from '@/lib/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,27 +74,64 @@ const navToggleLabels: Array<{ key: AdminToggleKey; title: string; description: 
   { key: 'showResourcesNav', title: 'Show Resources', description: 'Display or hide Resources in nav.' },
 ];
 
+function parseDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function mapAdminUser(user: AdminDashboardUser): User {
+  return {
+    ...user,
+    createdAt: parseDate(user.createdAt),
+  };
+}
+
+function mapAdminTutorProfile(profile: AdminDashboardTutorProfile): StoredTutorProfile {
+  return {
+    ...profile,
+    createdAt: parseDate(profile.createdAt),
+  };
+}
+
+function mapAdminBooking(booking: AdminDashboardBooking): Booking {
+  return {
+    ...booking,
+    sessionDate: parseDate(booking.sessionDate),
+    createdAt: parseDate(booking.createdAt),
+  };
+}
+
+function mapAdminReview(review: AdminDashboardReview): Review {
+  return {
+    ...review,
+    createdAt: parseDate(review.createdAt),
+  };
+}
+
+function mapAdminPlatformUpdate(update: AdminDashboardPlatformUpdate): PlatformUpdate {
+  return {
+    ...update,
+    createdAt: parseDate(update.createdAt),
+  };
+}
+
 export default function AdminPage() {
   const {
     currentUser,
     isAdmin,
     isLoading,
-    users,
-    tutors,
-    bookings,
-    reviews,
-    platformUpdates,
-    createPlatformUpdate,
-    updateUserAccountStatus,
-    sendUserNotification,
-    getUserById,
-    platformSettings,
-    updatePlatformSettings,
-    sendPasswordResetLink,
   } = useApp();
   const router = useRouter();
 
-  const [draftSettings, setDraftSettings] = useState<PlatformSettings>(platformSettings);
+  const [users, setUsers] = useState<User[]>([]);
+  const [tutorProfiles, setTutorProfiles] = useState<StoredTutorProfile[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [platformUpdates, setPlatformUpdates] = useState<PlatformUpdate[]>([]);
+  const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS);
+  const [draftSettings, setDraftSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS);
+  const [loadingDashboard, setLoadingDashboard] = useState(false);
+  const [dashboardError, setDashboardError] = useState('');
   const [isPlatformControlsOpen, setIsPlatformControlsOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState('');
   const [tutorSearch, setTutorSearch] = useState('');
@@ -111,6 +165,42 @@ export default function AdminPage() {
   }, [platformSettings]);
 
   useEffect(() => {
+    if (!currentUser || !isAdmin) return;
+
+    let isMounted = true;
+
+    const loadDashboard = async () => {
+      setLoadingDashboard(true);
+      setDashboardError('');
+
+      try {
+        const data = await fetchAdminDashboard();
+        if (!isMounted) return;
+
+        setUsers(data.users.map(mapAdminUser));
+        setTutorProfiles(data.tutorProfiles.map(mapAdminTutorProfile));
+        setBookings(data.bookings.map(mapAdminBooking));
+        setReviews(data.reviews.map(mapAdminReview));
+        setPlatformUpdates(data.platformUpdates.map(mapAdminPlatformUpdate));
+        setPlatformSettings(data.platformSettings);
+      } catch (error) {
+        if (!isMounted) return;
+        setDashboardError(error instanceof Error ? error.message : 'We could not load the admin dashboard.');
+      } finally {
+        if (isMounted) {
+          setLoadingDashboard(false);
+        }
+      }
+    };
+
+    void loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser, isAdmin]);
+
+  useEffect(() => {
     if (!selectedUser) return;
     setUserNotificationTitle('');
     setUserNotificationMessage('');
@@ -123,6 +213,11 @@ export default function AdminPage() {
     if (!query) return students;
     return students.filter((user) => user.name.toLowerCase().includes(query) || user.email.toLowerCase().includes(query));
   }, [studentSearch, students]);
+
+  const tutors = useMemo(
+    () => buildTutorRecords(tutorProfiles, users, reviews),
+    [reviews, tutorProfiles, users]
+  );
 
   const filteredTutors = useMemo(() => {
     const query = tutorSearch.trim().toLowerCase();
@@ -138,6 +233,7 @@ export default function AdminPage() {
     () => [...bookings].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 6),
     [bookings]
   );
+  const getUserById = (userId: string) => users.find((user) => user.id === userId);
   const userBookingCounts = useMemo(
     () =>
       bookings.reduce<Record<string, number>>((counts, booking) => {
@@ -214,7 +310,8 @@ export default function AdminPage() {
     setSavingSettings(true);
     setSettingsMessage('');
     try {
-      await updatePlatformSettings(draftSettings);
+      const nextSettings = await saveAdminPlatformSettings(draftSettings);
+      setPlatformSettings(nextSettings);
       setSettingsMessageType('success');
       setSettingsMessage('Platform settings saved successfully.');
     } catch (error) {
@@ -234,7 +331,7 @@ export default function AdminPage() {
     setSendingReset(true);
     setResetMessage('');
     try {
-      await sendPasswordResetLink(resetEmail.trim());
+      await sendAdminPasswordReset(resetEmail.trim());
       setResetMessageType('success');
       setResetMessage(`Password reset link sent to ${resetEmail.trim()}.`);
     } catch (error) {
@@ -254,7 +351,13 @@ export default function AdminPage() {
     setPostingUpdate(true);
     setUpdatePostMessage('');
     try {
-      await createPlatformUpdate({ title: updateTitle, message: updateMessage, category: updateCategory, audience: updateAudience });
+      const createdUpdate = await postAdminPlatformUpdate({
+        title: updateTitle,
+        message: updateMessage,
+        category: updateCategory,
+        audience: updateAudience,
+      });
+      setPlatformUpdates((current) => [mapAdminPlatformUpdate(createdUpdate), ...current]);
       setUpdateTitle('');
       setUpdateMessage('');
       setUpdateCategory('announcement');
@@ -274,7 +377,8 @@ export default function AdminPage() {
     setManagingUser(true);
     setUserActionMessage('');
     try {
-      const updatedUser = await updateUserAccountStatus(selectedUser, status);
+      const updatedUser = mapAdminUser(await updateAdminUserStatus(selectedUser.id, status));
+      setUsers((current) => current.map((user) => (user.id === updatedUser.id ? updatedUser : user)));
       setSelectedUser(updatedUser);
       setUserActionMessageType('success');
       setUserActionMessage(status === 'active' ? 'User reactivated.' : status === 'suspended' ? 'User suspended.' : 'User removed from the platform.');
@@ -296,7 +400,7 @@ export default function AdminPage() {
     setManagingUser(true);
     setUserActionMessage('');
     try {
-      await sendUserNotification(selectedUser.id, userNotificationTitle, userNotificationMessage);
+      await sendAdminUserNotification(selectedUser.id, userNotificationTitle, userNotificationMessage);
       setUserNotificationTitle('');
       setUserNotificationMessage('');
       setUserActionMessageType('success');
@@ -327,11 +431,20 @@ export default function AdminPage() {
             </Alert>
           )}
 
+          {dashboardError && (
+            <Alert className="mb-6" variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{dashboardError}</AlertDescription>
+            </Alert>
+          )}
+
           <Card className="mb-8 border-primary/20 bg-gradient-to-r from-primary/10 via-primary/5 to-secondary/10">
             <CardContent className="flex flex-col gap-6 py-8 md:flex-row md:items-end md:justify-between">
               <div className="space-y-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Platform Size</p>
-                <p className="text-5xl font-bold text-foreground md:text-6xl">{users.length}</p>
+                <p className="text-5xl font-bold text-foreground md:text-6xl">
+                  {loadingDashboard ? '...' : users.length}
+                </p>
                 <p className="max-w-xl text-sm text-muted-foreground">Total registered users across students and tutors.</p>
               </div>
               <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
@@ -398,7 +511,7 @@ export default function AdminPage() {
                           {platformSettings.adminEmail || ADMIN_EMAIL || 'Not configured'}
                         </Badge>
                       </div>
-                      <Button onClick={() => void handleSaveSettings()} className="w-full bg-primary hover:bg-primary/90 sm:w-auto" disabled={savingSettings}>{savingSettings ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : 'Save Platform Settings'}</Button>
+                      <Button onClick={() => void handleSaveSettings()} className="w-full bg-primary hover:bg-primary/90 sm:w-auto" disabled={savingSettings || loadingDashboard}>{savingSettings ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : 'Save Platform Settings'}</Button>
                     </div>
                   </CardContent>
                 ) : (
@@ -412,7 +525,7 @@ export default function AdminPage() {
                   <CardDescription>Click a student to view details, suspend, delete, or send a direct notification.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Input value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} placeholder="Search students by name or email" />
+                  <Input value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} placeholder="Search students by name or email" disabled={loadingDashboard} />
                   <div className="scrollbar-hidden max-h-[24rem] overflow-y-auto rounded-xl border border-border">
                     {filteredStudents.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">No students match your search.</p> : (
                       <>
@@ -461,7 +574,7 @@ export default function AdminPage() {
                   <CardDescription>Click a tutor to view details, suspend, delete, or send a direct notification.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={tutorSearch} onChange={(e) => setTutorSearch(e.target.value)} placeholder="Search tutors by name, email, or course" className="pl-9" /></div>
+                  <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={tutorSearch} onChange={(e) => setTutorSearch(e.target.value)} placeholder="Search tutors by name, email, or course" className="pl-9" disabled={loadingDashboard} /></div>
                   <div className="scrollbar-hidden max-h-[24rem] overflow-y-auto rounded-xl border border-border">
                     {filteredTutors.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">No tutors match your search.</p> : (
                       <>
@@ -513,17 +626,17 @@ export default function AdminPage() {
                 <CardHeader><CardTitle>Post Platform Update</CardTitle><CardDescription>Share announcements with everyone or target students or tutors.</CardDescription></CardHeader>
                 <CardContent className="space-y-4">
                   {updatePostMessage && <Alert variant={updatePostMessageType === 'success' ? 'default' : 'destructive'}>{updatePostMessageType === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}<AlertDescription>{updatePostMessage}</AlertDescription></Alert>}
-                  <Input value={updateTitle} onChange={(e) => setUpdateTitle(e.target.value)} placeholder="Update title" disabled={postingUpdate} />
+                  <Input value={updateTitle} onChange={(e) => setUpdateTitle(e.target.value)} placeholder="Update title" disabled={postingUpdate || loadingDashboard} />
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <select value={updateCategory} onChange={(e) => setUpdateCategory(e.target.value as PlatformUpdate['category'])} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" disabled={postingUpdate}>
+                    <select value={updateCategory} onChange={(e) => setUpdateCategory(e.target.value as PlatformUpdate['category'])} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" disabled={postingUpdate || loadingDashboard}>
                       <option value="announcement">Announcement</option><option value="coming-soon">Coming Soon</option><option value="maintenance">Maintenance</option><option value="feature">Feature</option>
                     </select>
-                    <select value={updateAudience} onChange={(e) => setUpdateAudience(e.target.value as PlatformUpdate['audience'])} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" disabled={postingUpdate}>
+                    <select value={updateAudience} onChange={(e) => setUpdateAudience(e.target.value as PlatformUpdate['audience'])} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" disabled={postingUpdate || loadingDashboard}>
                       <option value="all">All Users</option><option value="students">Students Only</option><option value="tutors">Tutors Only</option>
                     </select>
                   </div>
-                  <Textarea value={updateMessage} onChange={(e) => setUpdateMessage(e.target.value)} placeholder="Write the update message users should see on their dashboards." rows={5} disabled={postingUpdate} />
-                  <Button onClick={() => void handlePostUpdate()} className="w-full bg-primary hover:bg-primary/90" disabled={postingUpdate}>{postingUpdate ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Posting update...</> : <><BellRing className="mr-2 h-4 w-4" />Post Update</>}</Button>
+                  <Textarea value={updateMessage} onChange={(e) => setUpdateMessage(e.target.value)} placeholder="Write the update message users should see on their dashboards." rows={5} disabled={postingUpdate || loadingDashboard} />
+                  <Button onClick={() => void handlePostUpdate()} className="w-full bg-primary hover:bg-primary/90" disabled={postingUpdate || loadingDashboard}>{postingUpdate ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Posting update...</> : <><BellRing className="mr-2 h-4 w-4" />Post Update</>}</Button>
                 </CardContent>
               </Card>
 
@@ -532,8 +645,8 @@ export default function AdminPage() {
                 <CardContent className="space-y-4">
                   {resetMessage && <Alert variant={resetMessageType === 'success' ? 'default' : 'destructive'}>{resetMessageType === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}<AlertDescription>{resetMessage}</AlertDescription></Alert>}
                   <div className="rounded-xl border border-border bg-muted/30 p-4"><div className="mb-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-primary" /><p className="font-medium text-foreground">Forgot password support</p></div><p className="text-sm text-muted-foreground">The student receives the reset link in their inbox.</p></div>
-                  <Input type="email" value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} placeholder="student@example.com" disabled={sendingReset} />
-                  <Button onClick={() => void handleSendResetLink()} className="w-full bg-primary hover:bg-primary/90" disabled={sendingReset}>{sendingReset ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending reset link...</> : 'Send Password Reset Link'}</Button>
+                  <Input type="email" value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} placeholder="student@example.com" disabled={sendingReset || loadingDashboard} />
+                  <Button onClick={() => void handleSendResetLink()} className="w-full bg-primary hover:bg-primary/90" disabled={sendingReset || loadingDashboard}>{sendingReset ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending reset link...</> : 'Send Password Reset Link'}</Button>
                 </CardContent>
               </Card>
 

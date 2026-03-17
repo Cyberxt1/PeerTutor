@@ -198,13 +198,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isFirebaseConfigured || !currentUser) return undefined;
+    if (isAdminUser(currentUser)) {
+      setUsers([]);
+      return undefined;
+    }
     return subscribeToUsers(setUsers);
   }, [currentUser]);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !currentUser) return undefined;
     if (isAdminUser(currentUser)) {
-      return subscribeToAllBookings(setBookings);
+      setBookings([]);
+      return undefined;
     }
     return subscribeToBookings(currentUser.id, setBookings);
   }, [currentUser]);
