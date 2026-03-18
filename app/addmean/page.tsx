@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   KeyRound,
   Loader2,
+  MailCheck,
   Search,
   Shield,
   Star,
@@ -29,6 +30,7 @@ import {
   sendAdminPasswordReset,
   sendAdminUserNotification,
   updateAdminUserStatus,
+  verifyAdminUserEmail,
   type AdminDashboardBooking,
   type AdminDashboardPlatformUpdate,
   type AdminDashboardReview,
@@ -413,6 +415,24 @@ export default function AdminPage() {
     }
   };
 
+  const handleVerifyUserEmail = async () => {
+    if (!selectedUser) return;
+    setManagingUser(true);
+    setUserActionMessage('');
+    try {
+      const updatedUser = mapAdminUser(await verifyAdminUserEmail(selectedUser.id));
+      setUsers((current) => current.map((user) => (user.id === updatedUser.id ? updatedUser : user)));
+      setSelectedUser(updatedUser);
+      setUserActionMessageType('success');
+      setUserActionMessage('User email marked as verified.');
+    } catch (error) {
+      setUserActionMessageType('error');
+      setUserActionMessage(error instanceof Error ? error.message : 'We could not verify this user.');
+    } finally {
+      setManagingUser(false);
+    }
+  };
+
   return (
     <>
       <Header />
@@ -712,10 +732,12 @@ export default function AdminPage() {
                     <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Role</p><p className="mt-2 font-semibold text-foreground capitalize">{selectedUser.role}</p></div>
                     <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Status</p><p className="mt-2 font-semibold text-foreground capitalize">{selectedUser.accountStatus || 'active'}</p></div>
                     <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Email</p><p className="mt-2 break-all text-sm font-medium text-foreground">{selectedUser.email}</p></div>
+                    <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Email verification</p><p className="mt-2 font-semibold text-foreground">{selectedUser.emailVerified ? 'Verified' : 'Not verified yet'}</p></div>
                     <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Phone</p><p className="mt-2 text-sm font-medium text-foreground">{selectedUser.phone || 'Not added yet'}</p></div>
                     <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Joined</p><p className="mt-2 text-sm font-medium text-foreground">{new Date(selectedUser.createdAt).toLocaleString()}</p></div>
                     <div className="rounded-xl border border-border bg-muted/30 p-4"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Bookings</p><p className="mt-2 text-sm font-medium text-foreground">{selectedUserBookings.length}</p></div>
                   </div>
+                  {!selectedUser.emailVerified && <Alert><AlertCircle className="h-4 w-4" /><AlertDescription>This user cannot use the platform until their email is verified.{selectedUser.verificationSuspended ? ' Their account is currently frozen because the verification grace period expired.' : ''}</AlertDescription></Alert>}
                   {selectedTutorRecord && <div className="rounded-xl border border-border bg-muted/20 p-4"><p className="font-medium text-foreground">Tutor details</p><p className="mt-2 text-sm text-muted-foreground">Hourly rate: NGN {selectedTutorRecord.hourlyRate.toLocaleString()} • Courses: {selectedTutorRecord.courses.length > 0 ? selectedTutorRecord.courses.map((course) => course.code).join(', ') : 'No courses listed'}</p></div>}
                   {selectedUser.bio && <div className="rounded-xl border border-border bg-muted/20 p-4"><p className="font-medium text-foreground">Bio</p><p className="mt-2 text-sm text-muted-foreground">{selectedUser.bio}</p></div>}
                   <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
@@ -730,6 +752,7 @@ export default function AdminPage() {
               <div className="border-t border-border px-4 py-4 sm:px-6">
                 <DialogFooter className="gap-3 sm:justify-between">
                   <div className="flex flex-col gap-2 sm:flex-row">
+                    {!selectedUser.emailVerified && <Button variant="secondary" onClick={() => void handleVerifyUserEmail()} disabled={managingUser || selectedUser.accountStatus === 'deleted'}><MailCheck className="mr-2 h-4 w-4" />Verify Email</Button>}
                     <Button variant="outline" onClick={() => void handleUserStatusUpdate(selectedUser.accountStatus === 'suspended' ? 'active' : 'suspended')} disabled={managingUser || selectedUser.accountStatus === 'deleted'}>{selectedUser.accountStatus === 'suspended' ? 'Reactivate User' : 'Suspend User'}</Button>
                     <Button variant="destructive" onClick={() => void handleUserStatusUpdate('deleted')} disabled={managingUser || selectedUser.accountStatus === 'deleted'}><Trash2 className="mr-2 h-4 w-4" />Delete From Platform</Button>
                   </div>

@@ -41,7 +41,8 @@ export async function POST(
     }
 
     const updatedSnapshot = await userRef.get();
-    return NextResponse.json({ user: serializeUser(updatedSnapshot.id, updatedSnapshot.data() || {}) });
+    const authUser = await adminRequest.adminAuth.getUser(userId).catch(() => null);
+    return NextResponse.json({ user: serializeUser(updatedSnapshot.id, updatedSnapshot.data() || {}, authUser) });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : 'Unable to update this user.', 500);
   }

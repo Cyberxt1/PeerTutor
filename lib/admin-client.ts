@@ -8,7 +8,9 @@ export type AdminDashboardUser = {
   id: string;
   name: string;
   email: string;
+  emailVerified: boolean;
   role: 'student' | 'tutor';
+  verificationSuspended?: boolean;
   accountStatus: AccountStatus;
   profileImage?: string;
   bio?: string;
@@ -141,6 +143,13 @@ export async function updateAdminUserStatus(userId: string, status: AccountStatu
   const response = await adminRequest<{ user: AdminDashboardUser }>(`/api/admin/users/${userId}/status`, {
     method: 'POST',
     body: JSON.stringify({ status }),
+  });
+  return response.user;
+}
+
+export async function verifyAdminUserEmail(userId: string) {
+  const response = await adminRequest<{ user: AdminDashboardUser }>(`/api/admin/users/${userId}/verify`, {
+    method: 'POST',
   });
   return response.user;
 }

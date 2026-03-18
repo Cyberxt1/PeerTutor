@@ -60,6 +60,10 @@ function getSnapshotErrorMessage(error: unknown, label: string) {
       : 'unknown';
 
   if (code === 'permission-denied') {
+    if (auth?.currentUser && !auth.currentUser.emailVerified) {
+      return 'Verify your email address before using the platform.';
+    }
+
     return `Firestore access to ${label} was denied. Deploy your Firestore rules to the Firebase project and make sure you are signed in.`;
   }
 
@@ -201,6 +205,7 @@ function mapUser(id: string, data: Record<string, unknown>): User {
     id,
     name: typeof data.name === 'string' ? data.name : 'CampusTutor User',
     email: typeof data.email === 'string' ? data.email : '',
+    emailVerified: typeof data.emailVerified === 'boolean' ? data.emailVerified : false,
     role: data.role === 'tutor' ? 'tutor' : 'student',
     signInCount: typeof data.signInCount === 'number' ? data.signInCount : 1,
     verificationSuspended: Boolean(data.verificationSuspended),
@@ -419,6 +424,7 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
   const userDoc = {
     name,
     email: firebaseUser.email || '',
+    emailVerified: firebaseUser.emailVerified,
     role: storedRole,
     signInCount: 1,
     verificationSuspended: false,
@@ -468,27 +474,48 @@ async function syncUserEmailVerificationState(user: User, firebaseUser?: Firebas
   const userRef = doc(db!, 'users', nextUser.id);
 
   if (nextUser.emailVerified) {
-    if (nextUser.verificationSuspended) {
-      await updateDoc(userRef, {
-        accountStatus: 'active',
-        verificationSuspended: false,
-      });
+    const updates: Record<string, unknown> = {};
 
+    if (user.emailVerified !== true) {
+      updates.emailVerified = true;
+    }
+
+    if (nextUser.verificationSuspended) {
+      updates.accountStatus = 'active';
+      updates.verificationSuspended = false;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(userRef, updates);
+    }
+
+    if (nextUser.verificationSuspended) {
       return {
         ...nextUser,
         accountStatus: 'active',
         verificationSuspended: false,
+        emailVerified: true,
       };
+    }
+
+    return {
+      ...nextUser,
+      emailVerified: true,
+    };
+  }
+
+  if (!hasEmailVerificationGraceExpired(nextUser.createdAt) || nextUser.verificationSuspended) {
+    if (user.emailVerified !== false) {
+      await updateDoc(userRef, {
+        emailVerified: false,
+      });
     }
 
     return nextUser;
   }
 
-  if (!hasEmailVerificationGraceExpired(nextUser.createdAt) || nextUser.verificationSuspended) {
-    return nextUser;
-  }
-
   await updateDoc(userRef, {
+    emailVerified: false,
     accountStatus: 'suspended',
     verificationSuspended: true,
   });
@@ -810,6 +837,7 @@ export async function updateUserProfileRecord(
   const userUpdates = {
     ...(updates.name ? { name: updates.name.trim() } : {}),
     ...(updates.email ? { email: updates.email.trim() } : {}),
+    ...(updates.email ? { emailVerified: auth?.currentUser?.emailVerified ?? false } : {}),
     ...(updates.phone !== undefined ? { phone: updates.phone.trim() } : {}),
     ...(updates.bio !== undefined ? { bio: updates.bio.trim() } : {}),
     ...(updates.profileImage ? { profileImage: updates.profileImage } : {}),

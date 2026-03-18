@@ -3,8 +3,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { FirebaseError } from 'firebase/app';
 import { defaultSubjects } from '@/lib/catalog';
-import { DEFAULT_PLATFORM_SETTINGS, isAdminUser, type PlatformSettings } from '@/lib/platform';
-import { isFirebaseConfigured } from '@/lib/firebase/client';
+import { auth, isFirebaseConfigured } from '@/lib/firebase/client';
+import { ADMIN_EMAIL, DEFAULT_PLATFORM_SETTINGS, isAdminUser, type PlatformSettings } from '@/lib/platform';
 import {
   confirmPasswordResetRecord,
   createCourseRequestRecord,
@@ -145,6 +145,12 @@ function getReadableFirebaseError(error: unknown) {
     if (error.code === 'auth/user-not-found') return 'We could not find an account for that email address.';
     if (error.code === 'auth/invalid-action-code') return 'This password reset link is invalid or has expired.';
     if (error.code === 'auth/weak-password') return 'Choose a stronger password before continuing.';
+    if (error.code === 'permission-denied') {
+      if (auth?.currentUser && !auth.currentUser.emailVerified) {
+        return 'Verify your email address before using the platform.';
+      }
+      return 'You do not have permission to do that right now.';
+    }
     if (error.code === 'auth/requires-recent-login') {
       return 'For security, please log out and sign in again before changing your email.';
     }
@@ -198,7 +204,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !currentUser || !currentUser.emailVerified) {
+    if (
+      !isFirebaseConfigured ||
+      !currentUser ||
+      !currentUser.emailVerified ||
+      !(platformSettings.adminEmail || ADMIN_EMAIL)
+    ) {
       setTutorProfiles([]);
       return undefined;
     }
@@ -245,7 +256,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isFirebaseConfigured || !currentUser) return undefined;
-    if (isAdminUser(currentUser) || !currentUser.emailVerified) {
+    if (
+      isAdminUser(currentUser) ||
+      !currentUser.emailVerified ||
+      !(platformSettings.adminEmail || ADMIN_EMAIL)
+    ) {
       setUsers([]);
       return undefined;
     }

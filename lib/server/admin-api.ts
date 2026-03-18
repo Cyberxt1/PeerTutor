@@ -55,6 +55,7 @@ export async function requireAdminRequest(request: NextRequest) {
     return {
       adminEmail: decodedEmail,
       adminUid: decodedToken.uid,
+      adminAuth,
       db,
     };
   } catch (error) {
@@ -140,12 +141,23 @@ export async function ensurePlatformSettings(adminEmail: string) {
   return settings;
 }
 
-export function serializeUser(id: string, data: Record<string, unknown>) {
+export function serializeUser(
+  id: string,
+  data: Record<string, unknown>,
+  authUser?: { emailVerified?: boolean | null }
+) {
   return {
     id,
     name: typeof data.name === 'string' ? data.name : 'CampusTutor User',
     email: typeof data.email === 'string' ? data.email : '',
+    emailVerified:
+      typeof authUser?.emailVerified === 'boolean'
+        ? authUser.emailVerified
+        : typeof data.emailVerified === 'boolean'
+          ? data.emailVerified
+          : false,
     role: data.role === 'tutor' ? 'tutor' : 'student',
+    verificationSuspended: Boolean(data.verificationSuspended),
     accountStatus:
       data.accountStatus === 'suspended' || data.accountStatus === 'deleted'
         ? data.accountStatus
