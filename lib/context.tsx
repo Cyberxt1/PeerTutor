@@ -6,6 +6,7 @@ import { defaultSubjects } from '@/lib/catalog';
 import { DEFAULT_PLATFORM_SETTINGS, isAdminUser, type PlatformSettings } from '@/lib/platform';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import {
+  confirmPasswordResetRecord,
   createCourseRequestRecord,
   clearUserNotificationsRecord,
   createBookingRecord,
@@ -17,6 +18,7 @@ import {
   loginWithEmail,
   logoutUser,
   markUserNotificationsAsReadRecord,
+  requestPasswordResetLinkRecord,
   sendEmailVerificationLinkRecord,
   sendPasswordResetLinkRecord,
   signupWithEmail,
@@ -121,6 +123,8 @@ interface AppContextType {
   clearNotifications: (notificationIds: string[]) => Promise<void>;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => Promise<PlatformSettings>;
   sendPasswordResetLink: (email: string) => Promise<void>;
+  requestPasswordResetLink: (email: string) => Promise<void>;
+  confirmPasswordReset: (code: string, newPassword: string) => Promise<void>;
   sendEmailVerificationLink: () => Promise<'sent' | 'already-verified'>;
   getTutorById: (tutorId: string) => TutorRecord | undefined;
   getTutorByUserId: (userId: string) => TutorRecord | undefined;
@@ -138,6 +142,9 @@ function getReadableFirebaseError(error: unknown) {
   if (error instanceof FirebaseError) {
     if (error.code === 'auth/invalid-credential') return 'Invalid email or password.';
     if (error.code === 'auth/email-already-in-use') return 'Email already registered.';
+    if (error.code === 'auth/user-not-found') return 'We could not find an account for that email address.';
+    if (error.code === 'auth/invalid-action-code') return 'This password reset link is invalid or has expired.';
+    if (error.code === 'auth/weak-password') return 'Choose a stronger password before continuing.';
     if (error.code === 'auth/requires-recent-login') {
       return 'For security, please log out and sign in again before changing your email.';
     }
@@ -191,9 +198,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isFirebaseConfigured) return undefined;
-    return subscribeToTutorProfiles(setTutorProfiles);
-  }, []);
+    if (!isFirebaseConfigured || !currentUser || !currentUser.emailVerified) {
+      setTutorProfiles([]);
+      return undefined;
+    }
+
+    return subscribeToTutorProfiles(setTutorProfiles, platformSettings.adminEmail);
+  }, [currentUser, platformSettings.adminEmail]);
 
   useEffect(() => {
     if (!isFirebaseConfigured) return undefined;
@@ -206,14 +217,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isFirebaseConfigured) return undefined;
+    if (!isFirebaseConfigured || !currentUser || !currentUser.emailVerified) {
+      setCourseRequests([]);
+      return undefined;
+    }
+
     return subscribeToCourseRequests(setCourseRequests);
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
-    if (!isFirebaseConfigured) return undefined;
+    if (!isFirebaseConfigured || !currentUser || !currentUser.emailVerified) {
+      setCourseRequestInterests([]);
+      return undefined;
+    }
+
     return subscribeToCourseRequestInterests(setCourseRequestInterests);
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
@@ -226,16 +245,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isFirebaseConfigured || !currentUser) return undefined;
-    if (isAdminUser(currentUser)) {
+    if (isAdminUser(currentUser) || !currentUser.emailVerified) {
       setUsers([]);
       return undefined;
     }
-    return subscribeToUsers(setUsers);
-  }, [currentUser]);
+    return subscribeToUsers(setUsers, platformSettings.adminEmail);
+  }, [currentUser, platformSettings.adminEmail]);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !currentUser) return undefined;
-    if (isAdminUser(currentUser)) {
+    if (isAdminUser(currentUser) || !currentUser.emailVerified) {
       setBookings([]);
       return undefined;
     }
@@ -243,7 +262,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !currentUser || isAdminUser(currentUser)) {
+    if (!isFirebaseConfigured || !currentUser || isAdminUser(currentUser) || !currentUser.emailVerified) {
       setUserNotifications([]);
       return undefined;
     }
@@ -516,6 +535,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         try {
           await sendPasswordResetLinkRecord(email);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async requestPasswordResetLink(email) {
+        try {
+          await requestPasswordResetLinkRecord(email);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async confirmPasswordReset(code, newPassword) {
+        try {
+          await confirmPasswordResetRecord(code, newPassword);
         } catch (error) {
           throw new Error(getReadableFirebaseError(error));
         }

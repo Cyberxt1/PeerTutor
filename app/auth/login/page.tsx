@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetStatus, setResetStatus] = useState<string | null>(null);
   const { currentUser, isLoading, isFirebaseConfigured, login } = useApp();
   const router = useRouter();
 
@@ -28,8 +29,18 @@ export default function LoginPage() {
       return;
     }
 
+    if (!currentUser.emailVerified) {
+      router.replace('/auth/verify-email');
+      return;
+    }
+
     router.replace(currentUser.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
   }, [currentUser, isLoading, router]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setResetStatus(params.get('reset'));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +49,10 @@ export default function LoginPage() {
 
     try {
       const signedInUser = await login(email, password);
+      if (!signedInUser.emailVerified) {
+        router.replace('/auth/verify-email');
+        return;
+      }
       router.replace(
         isAdminUser(signedInUser) ? '/addmean' : signedInUser.role === 'tutor' ? '/tutor/dashboard' : '/student/dashboard'
       );
@@ -67,6 +82,15 @@ export default function LoginPage() {
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {resetStatus === 'success' && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Your password has been updated. Sign in with your new password.
+              </AlertDescription>
             </Alert>
           )}
 
@@ -103,6 +127,12 @@ export default function LoginPage() {
                 disabled={loading || !isFirebaseConfigured}
               />
             </Field>
+
+            <div className="text-right text-sm">
+              <Link href="/auth/forgot-password" className="font-medium text-primary hover:underline">
+                Forgot password?
+              </Link>
+            </div>
 
             <Button
               type="submit"

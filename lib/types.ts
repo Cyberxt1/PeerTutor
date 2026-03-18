@@ -8,6 +8,7 @@ export interface User {
   emailVerified?: boolean;
   role: UserRole;
   signInCount: number;
+  verificationSuspended?: boolean;
   accountStatus?: AccountStatus;
   profileImage?: string;
   bio?: string;

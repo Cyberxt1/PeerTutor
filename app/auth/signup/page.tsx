@@ -32,6 +32,11 @@ export default function SignupPage() {
       return;
     }
 
+    if (!currentUser.emailVerified) {
+      router.replace('/auth/verify-email');
+      return;
+    }
+
     router.replace(currentUser.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
   }, [currentUser, isLoading, router]);
 
@@ -64,7 +69,7 @@ export default function SignupPage() {
 
     try {
       const user = await signup(name, email, password, role);
-      router.replace(isAdminUser(user) ? '/addmean' : user.role === 'student' ? '/student/dashboard' : '/tutor/dashboard');
+      router.replace(isAdminUser(user) ? '/addmean' : '/auth/verify-email');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
     } finally {

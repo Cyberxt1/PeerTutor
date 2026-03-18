@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Analytics } from '@vercel/analytics/next'
+import EmailVerificationGate from '@/components/auth/email-verification-gate'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { AppProvider } from '@/lib/context'
@@ -26,6 +27,7 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <AppProvider>
+            <EmailVerificationGate />
             {children}
             <Toaster richColors position="top-right" />
             <Analytics />

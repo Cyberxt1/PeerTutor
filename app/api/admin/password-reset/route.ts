@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { email?: string };
     const email = body.email?.trim();
     const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    const resetUrl = `${request.nextUrl.origin}/auth/reset-password`;
 
     if (!email) {
       return jsonError('Enter a student email address first.', 400);
@@ -28,6 +29,8 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           requestType: 'PASSWORD_RESET',
           email,
+          continueUrl: resetUrl,
+          canHandleCodeInApp: true,
         }),
       }
     );

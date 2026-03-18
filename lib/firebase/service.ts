@@ -18,7 +18,9 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import {
+  confirmPasswordReset,
   createUserWithEmailAndPassword,
+  deleteUser,
   onAuthStateChanged,
   reload,
   sendEmailVerification,
@@ -26,6 +28,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateEmail,
+  verifyPasswordResetCode,
   type User as FirebaseAuthUser,
 } from 'firebase/auth';
 import { auth, db, isFirebaseConfigured } from '@/lib/firebase/client';
@@ -48,6 +51,7 @@ import type {
 } from '@/lib/types';
 
 type Unsubscribe = () => void;
+const EMAIL_VERIFICATION_GRACE_PERIOD_MS = 5 * 24 * 60 * 60 * 1000;
 
 function getSnapshotErrorMessage(error: unknown, label: string) {
   const code =
@@ -87,6 +91,28 @@ function assertConfigured() {
   if (!isFirebaseConfigured || !auth || !db) {
     throw new Error('Firebase is not configured yet.');
   }
+}
+
+function getPasswordResetUrl() {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/auth/reset-password`;
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  return appUrl ? `${appUrl.replace(/\/$/, '')}/auth/reset-password` : undefined;
+}
+
+function getEmailVerificationUrl() {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/auth/verify-email`;
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  return appUrl ? `${appUrl.replace(/\/$/, '')}/auth/verify-email` : undefined;
+}
+
+function hasEmailVerificationGraceExpired(createdAt: Date) {
+  return Date.now() - createdAt.getTime() > EMAIL_VERIFICATION_GRACE_PERIOD_MS;
 }
 
 async function refreshAuthUser(firebaseUser: FirebaseAuthUser | null) {
@@ -177,6 +203,7 @@ function mapUser(id: string, data: Record<string, unknown>): User {
     email: typeof data.email === 'string' ? data.email : '',
     role: data.role === 'tutor' ? 'tutor' : 'student',
     signInCount: typeof data.signInCount === 'number' ? data.signInCount : 1,
+    verificationSuspended: Boolean(data.verificationSuspended),
     accountStatus:
       data.accountStatus === 'suspended' || data.accountStatus === 'deleted'
         ? data.accountStatus
@@ -394,6 +421,7 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
     email: firebaseUser.email || '',
     role: storedRole,
     signInCount: 1,
+    verificationSuspended: false,
     accountStatus: 'active' as AccountStatus,
     profileImage: createFallbackAvatar(name),
     bio: '',
@@ -422,12 +450,62 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
   }
 }
 
+async function deleteSignupData(userId: string) {
+  await Promise.allSettled([
+    deleteDoc(doc(db!, 'users', userId)),
+    deleteDoc(doc(db!, 'tutorProfiles', userId)),
+  ]);
+}
+
+async function syncUserEmailVerificationState(user: User, firebaseUser?: FirebaseAuthUser | null) {
+  const authUser = firebaseUser ?? auth?.currentUser ?? null;
+  const nextUser = attachAuthState(user, authUser);
+
+  if (!authUser || isAdminEmail(nextUser.email)) {
+    return nextUser;
+  }
+
+  const userRef = doc(db!, 'users', nextUser.id);
+
+  if (nextUser.emailVerified) {
+    if (nextUser.verificationSuspended) {
+      await updateDoc(userRef, {
+        accountStatus: 'active',
+        verificationSuspended: false,
+      });
+
+      return {
+        ...nextUser,
+        accountStatus: 'active',
+        verificationSuspended: false,
+      };
+    }
+
+    return nextUser;
+  }
+
+  if (!hasEmailVerificationGraceExpired(nextUser.createdAt) || nextUser.verificationSuspended) {
+    return nextUser;
+  }
+
+  await updateDoc(userRef, {
+    accountStatus: 'suspended',
+    verificationSuspended: true,
+  });
+
+  return {
+    ...nextUser,
+    accountStatus: 'suspended',
+    verificationSuspended: true,
+  };
+}
+
 export async function getCurrentUserProfile(userId: string) {
   assertConfigured();
   const refreshedUser = await refreshAuthUser(auth?.currentUser ?? null);
   const snapshot = await getDoc(doc(db!, 'users', userId));
   if (!snapshot.exists()) return null;
-  return attachAuthState(mapUser(snapshot.id, snapshot.data()), refreshedUser);
+  return syncUserEmailVerificationState(mapUser(snapshot.id, snapshot.data()), refreshedUser);
 }
 
 export function subscribeToAuth(callback: (firebaseUser: FirebaseAuthUser | null) => void): Unsubscribe {
@@ -439,13 +517,27 @@ export function subscribeToAuth(callback: (firebaseUser: FirebaseAuthUser | null
 
 export function subscribeToTutorProfiles(
   callback: (profiles: StoredTutorProfile[]) => void,
+  adminEmail?: string,
   onError?: (message: string) => void
 ): Unsubscribe {
   assertConfigured();
+  const normalizedAdminEmail = normalizeEmail(adminEmail) || ADMIN_EMAIL;
+  const tutorProfilesQuery = normalizedAdminEmail
+    ? query(
+        collection(db!, 'tutorProfiles'),
+        where('email', '!=', normalizedAdminEmail),
+        orderBy('email'),
+      )
+    : query(collection(db!, 'tutorProfiles'), orderBy('createdAt', 'desc'));
+
   return onSnapshot(
-    query(collection(db!, 'tutorProfiles'), orderBy('createdAt', 'desc')),
+    tutorProfilesQuery,
     (snapshot) => {
-      callback(snapshot.docs.map((docSnapshot) => mapTutorProfile(docSnapshot.id, docSnapshot.data())));
+      const profiles = snapshot.docs
+        .map((docSnapshot) => mapTutorProfile(docSnapshot.id, docSnapshot.data()))
+        .sort((firstProfile, secondProfile) => secondProfile.createdAt.getTime() - firstProfile.createdAt.getTime());
+
+      callback(profiles);
     },
     (error) => {
       onError?.(getSnapshotErrorMessage(error, 'tutor profiles'));
@@ -471,13 +563,27 @@ export function subscribeToReviews(
 
 export function subscribeToUsers(
   callback: (users: User[]) => void,
+  adminEmail?: string,
   onError?: (message: string) => void
 ): Unsubscribe {
   assertConfigured();
+  const normalizedAdminEmail = normalizeEmail(adminEmail) || ADMIN_EMAIL;
+  const usersQuery = normalizedAdminEmail
+    ? query(
+        collection(db!, 'users'),
+        where('email', '!=', normalizedAdminEmail),
+        orderBy('email'),
+      )
+    : query(collection(db!, 'users'), orderBy('createdAt', 'desc'));
+
   return onSnapshot(
-    query(collection(db!, 'users'), orderBy('createdAt', 'desc')),
+    usersQuery,
     (snapshot) => {
-      callback(snapshot.docs.map((docSnapshot) => mapUser(docSnapshot.id, docSnapshot.data())));
+      const users = snapshot.docs
+        .map((docSnapshot) => mapUser(docSnapshot.id, docSnapshot.data()))
+        .sort((firstUser, secondUser) => secondUser.createdAt.getTime() - firstUser.createdAt.getTime());
+
+      callback(users);
     },
     (error) => {
       onError?.(getSnapshotErrorMessage(error, 'users'));
@@ -624,13 +730,14 @@ export async function loginWithEmail(email: string, password: string) {
   if (!profile) {
     throw new Error('Your user profile could not be found.');
   }
-  if (profile.accountStatus === 'suspended') {
+
+  if (profile.accountStatus === 'suspended' && !profile.verificationSuspended) {
     await signOut(auth!);
-    throw new Error('This account has been suspended by the administrator.');
+    throw new Error('This account has been suspended.');
   }
   if (profile.accountStatus === 'deleted') {
     await signOut(auth!);
-    throw new Error('This account has been removed from the platform by the administrator.');
+    throw new Error('This account has been removed from the platform.');
   }
   await updateDoc(doc(db!, 'users', userId), {
     signInCount: profile.signInCount + 1,
@@ -655,6 +762,28 @@ export async function signupWithEmail(
   }
   const credentials = await createUserWithEmailAndPassword(auth!, email, password);
   await createUserDocument(credentials.user, name, role);
+
+  try {
+    const verificationUrl = getEmailVerificationUrl();
+    await sendEmailVerification(
+      credentials.user,
+      verificationUrl
+        ? {
+            handleCodeInApp: true,
+            url: verificationUrl,
+          }
+        : undefined
+    );
+  } catch (error) {
+    await deleteSignupData(credentials.user.uid);
+    await deleteUser(credentials.user);
+    throw new Error(
+      error instanceof Error
+        ? `We could not send the verification email, so the signup was cancelled. ${error.message}`
+        : 'We could not send the verification email, so the signup was cancelled.'
+    );
+  }
+
   const profile = await getCurrentUserProfile(credentials.user.uid);
   if (!profile) {
     throw new Error('Your account was created, but the profile setup did not complete.');
@@ -983,7 +1112,42 @@ export async function updateUserAccountStatusRecord(user: User, status: AccountS
 
 export async function sendPasswordResetLinkRecord(email: string) {
   assertConfigured();
-  await sendPasswordResetEmail(auth!, email.trim());
+  const resetUrl = getPasswordResetUrl();
+  await sendPasswordResetEmail(
+    auth!,
+    email.trim(),
+    resetUrl
+      ? {
+          handleCodeInApp: true,
+          url: resetUrl,
+        }
+      : undefined
+  );
+}
+
+export async function requestPasswordResetLinkRecord(email: string) {
+  assertConfigured();
+  const resetUrl = getPasswordResetUrl();
+  await sendPasswordResetEmail(
+    auth!,
+    email.trim(),
+    resetUrl
+      ? {
+          handleCodeInApp: true,
+          url: resetUrl,
+        }
+      : undefined
+  );
+}
+
+export async function verifyPasswordResetCodeRecord(code: string) {
+  assertConfigured();
+  return verifyPasswordResetCode(auth!, code);
+}
+
+export async function confirmPasswordResetRecord(code: string, newPassword: string) {
+  assertConfigured();
+  await confirmPasswordReset(auth!, code, newPassword);
 }
 
 export async function sendEmailVerificationLinkRecord() {
@@ -998,7 +1162,16 @@ export async function sendEmailVerificationLinkRecord() {
     return 'already-verified' as const;
   }
 
-  await sendEmailVerification(currentAuthUser);
+  const verificationUrl = getEmailVerificationUrl();
+  await sendEmailVerification(
+    currentAuthUser,
+    verificationUrl
+      ? {
+          handleCodeInApp: true,
+          url: verificationUrl,
+        }
+      : undefined
+  );
   return 'sent' as const;
 }
 
