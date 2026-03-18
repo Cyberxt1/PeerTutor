@@ -1,8 +1,10 @@
 'use client';
 
 import {
+  addDoc,
   collection,
   doc,
+  deleteDoc,
   getDoc,
   getDocs,
   onSnapshot,
@@ -11,14 +13,15 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-  addDoc,
   where,
   Timestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   reload,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
@@ -33,6 +36,8 @@ import type {
   AccountStatus,
   AvailabilitySlot,
   Booking,
+  CourseRequest,
+  CourseRequestInterest,
   PlatformUpdate,
   Review,
   TutorCourse,
@@ -97,6 +102,22 @@ async function refreshAuthUser(firebaseUser: FirebaseAuthUser | null) {
   return auth?.currentUser ?? firebaseUser;
 }
 
+function attachAuthState(user: User, firebaseUser?: FirebaseAuthUser | null) {
+  const authUser = firebaseUser ?? auth?.currentUser ?? null;
+
+  if (!authUser) {
+    return user;
+  }
+
+  return {
+    ...user,
+    emailVerified:
+      normalizeEmail(authUser.email) === normalizeEmail(user.email)
+        ? authUser.emailVerified
+        : user.emailVerified,
+  };
+}
+
 function parseTimestamp(value: unknown) {
   if (value instanceof Timestamp) return value.toDate();
   if (value instanceof Date) return value;
@@ -155,6 +176,7 @@ function mapUser(id: string, data: Record<string, unknown>): User {
     name: typeof data.name === 'string' ? data.name : 'CampusTutor User',
     email: typeof data.email === 'string' ? data.email : '',
     role: data.role === 'tutor' ? 'tutor' : 'student',
+    signInCount: typeof data.signInCount === 'number' ? data.signInCount : 1,
     accountStatus:
       data.accountStatus === 'suspended' || data.accountStatus === 'deleted'
         ? data.accountStatus
@@ -285,7 +307,35 @@ function mapUserNotification(id: string, data: Record<string, unknown>): UserNot
     createdAt: parseTimestamp(data.createdAt),
     createdByEmail: typeof data.createdByEmail === 'string' ? data.createdByEmail : '',
     active: typeof data.active === 'boolean' ? data.active : true,
+    readAt: data.readAt === null || data.readAt === undefined ? null : parseTimestamp(data.readAt),
+    clearedAt: data.clearedAt === null || data.clearedAt === undefined ? null : parseTimestamp(data.clearedAt),
   };
+}
+
+function mapCourseRequest(id: string, data: Record<string, unknown>): CourseRequest {
+  return {
+    id,
+    requesterUserId: typeof data.requesterUserId === 'string' ? data.requesterUserId : '',
+    requesterRole: data.requesterRole === 'tutor' ? 'tutor' : 'student',
+    courseCode: typeof data.courseCode === 'string' ? data.courseCode : '',
+    courseName: typeof data.courseName === 'string' ? data.courseName : 'Requested course',
+    details: typeof data.details === 'string' ? data.details : '',
+    status: data.status === 'closed' ? 'closed' : 'open',
+    createdAt: parseTimestamp(data.createdAt),
+  };
+}
+
+function mapCourseRequestInterest(id: string, data: Record<string, unknown>): CourseRequestInterest {
+  return {
+    id,
+    requestId: typeof data.requestId === 'string' ? data.requestId : '',
+    tutorUserId: typeof data.tutorUserId === 'string' ? data.tutorUserId : '',
+    createdAt: parseTimestamp(data.createdAt),
+  };
+}
+
+function getCourseRequestInterestId(requestId: string, tutorUserId: string) {
+  return `${requestId}_${tutorUserId}`;
 }
 
 export function buildTutorRecords(
@@ -300,6 +350,7 @@ export function buildTutorRecords(
         name: profile.displayName,
         email: profile.email,
         role: 'tutor' as const,
+        signInCount: 1,
         profileImage: profile.profileImage || createFallbackAvatar(profile.displayName),
         bio: profile.bio,
         phone: profile.phone,
@@ -342,6 +393,7 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
     name,
     email: firebaseUser.email || '',
     role: storedRole,
+    signInCount: 1,
     accountStatus: 'active' as AccountStatus,
     profileImage: createFallbackAvatar(name),
     bio: '',
@@ -372,9 +424,10 @@ async function createUserDocument(firebaseUser: FirebaseAuthUser, name: string, 
 
 export async function getCurrentUserProfile(userId: string) {
   assertConfigured();
+  const refreshedUser = await refreshAuthUser(auth?.currentUser ?? null);
   const snapshot = await getDoc(doc(db!, 'users', userId));
   if (!snapshot.exists()) return null;
-  return mapUser(snapshot.id, snapshot.data());
+  return attachAuthState(mapUser(snapshot.id, snapshot.data()), refreshedUser);
 }
 
 export function subscribeToAuth(callback: (firebaseUser: FirebaseAuthUser | null) => void): Unsubscribe {
@@ -524,6 +577,38 @@ export function subscribeToUserNotifications(
   );
 }
 
+export function subscribeToCourseRequests(
+  callback: (requests: CourseRequest[]) => void,
+  onError?: (message: string) => void
+): Unsubscribe {
+  assertConfigured();
+  return onSnapshot(
+    query(collection(db!, 'courseRequests'), orderBy('createdAt', 'desc')),
+    (snapshot) => {
+      callback(snapshot.docs.map((docSnapshot) => mapCourseRequest(docSnapshot.id, docSnapshot.data())));
+    },
+    (error) => {
+      onError?.(getSnapshotErrorMessage(error, 'course requests'));
+    },
+  );
+}
+
+export function subscribeToCourseRequestInterests(
+  callback: (interests: CourseRequestInterest[]) => void,
+  onError?: (message: string) => void
+): Unsubscribe {
+  assertConfigured();
+  return onSnapshot(
+    query(collection(db!, 'courseRequestInterests'), orderBy('createdAt', 'desc')),
+    (snapshot) => {
+      callback(snapshot.docs.map((docSnapshot) => mapCourseRequestInterest(docSnapshot.id, docSnapshot.data())));
+    },
+    (error) => {
+      onError?.(getSnapshotErrorMessage(error, 'course request interests'));
+    },
+  );
+}
+
 export async function getPlatformSettingsRecord() {
   assertConfigured();
   const snapshot = await getDoc(doc(db!, 'platform', 'config'));
@@ -534,7 +619,8 @@ export async function loginWithEmail(email: string, password: string) {
   assertConfigured();
   const credentials = await signInWithEmailAndPassword(auth!, email, password);
   const refreshedUser = await refreshAuthUser(credentials.user);
-  const profile = await getCurrentUserProfile((refreshedUser || credentials.user).uid);
+  const userId = (refreshedUser || credentials.user).uid;
+  const profile = await getCurrentUserProfile(userId);
   if (!profile) {
     throw new Error('Your user profile could not be found.');
   }
@@ -546,7 +632,14 @@ export async function loginWithEmail(email: string, password: string) {
     await signOut(auth!);
     throw new Error('This account has been removed from the platform by the administrator.');
   }
-  return profile;
+  await updateDoc(doc(db!, 'users', userId), {
+    signInCount: profile.signInCount + 1,
+  });
+  const updatedProfile = await getCurrentUserProfile(userId);
+  if (!updatedProfile) {
+    throw new Error('Your user profile could not be found.');
+  }
+  return updatedProfile;
 }
 
 export async function signupWithEmail(
@@ -614,6 +707,7 @@ export async function updateUserProfileRecord(
     email: updates.email?.trim() ?? currentUser.email,
     phone: updates.phone?.trim() ?? currentUser.phone,
     bio: updates.bio?.trim() ?? currentUser.bio,
+    emailVerified: auth?.currentUser?.emailVerified ?? currentUser.emailVerified,
   };
 }
 
@@ -892,6 +986,22 @@ export async function sendPasswordResetLinkRecord(email: string) {
   await sendPasswordResetEmail(auth!, email.trim());
 }
 
+export async function sendEmailVerificationLinkRecord() {
+  assertConfigured();
+
+  const currentAuthUser = await refreshAuthUser(auth?.currentUser ?? null);
+  if (!currentAuthUser) {
+    throw new Error('You need to be signed in.');
+  }
+
+  if (currentAuthUser.emailVerified) {
+    return 'already-verified' as const;
+  }
+
+  await sendEmailVerification(currentAuthUser);
+  return 'sent' as const;
+}
+
 export async function createUserNotificationRecord(userId: string, title: string, message: string) {
   assertConfigured();
 
@@ -907,11 +1017,167 @@ export async function createUserNotificationRecord(userId: string, title: string
     createdByEmail: currentEmail,
     createdAt: serverTimestamp(),
     active: true,
+    readAt: null,
+    clearedAt: null,
   };
 
   const docRef = await addDoc(collection(db!, 'userNotifications'), payload);
   const created = await getDoc(docRef);
   return mapUserNotification(created.id, created.data() || payload);
+}
+
+export async function createCourseRequestRecord(
+  requester: User,
+  request: {
+    courseCode: string;
+    courseName: string;
+    details: string;
+  }
+) {
+  assertConfigured();
+
+  if (isAdminEmail(requester.email)) {
+    throw new Error('The admin account cannot create course requests.');
+  }
+
+  const payload = {
+    requesterUserId: requester.id,
+    requesterRole: requester.role,
+    courseCode: request.courseCode.trim().toUpperCase(),
+    courseName: request.courseName.trim(),
+    details: request.details.trim(),
+    status: 'open' as const,
+    createdAt: serverTimestamp(),
+  };
+
+  const docRef = await addDoc(collection(db!, 'courseRequests'), payload);
+  const created = await getDoc(docRef);
+  return mapCourseRequest(created.id, created.data() || payload);
+}
+
+export async function toggleCourseRequestInterestRecord(requestId: string, tutor: User) {
+  assertConfigured();
+
+  if (tutor.role !== 'tutor') {
+    throw new Error('Only tutors can indicate interest in a course request.');
+  }
+
+  if (isAdminEmail(tutor.email)) {
+    throw new Error('The admin account cannot indicate interest in course requests.');
+  }
+
+  const requestRef = doc(db!, 'courseRequests', requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) {
+    throw new Error('This course request could not be found.');
+  }
+
+  const request = mapCourseRequest(requestSnapshot.id, requestSnapshot.data());
+  if (request.status !== 'open') {
+    throw new Error('This course request is no longer open.');
+  }
+
+  if (request.requesterUserId === tutor.id) {
+    throw new Error('You cannot indicate interest in your own request.');
+  }
+
+  const interestRef = doc(db!, 'courseRequestInterests', getCourseRequestInterestId(requestId, tutor.id));
+  const interestSnapshot = await getDoc(interestRef);
+
+  if (interestSnapshot.exists()) {
+    await deleteDoc(interestRef);
+    return false;
+  }
+
+  await setDoc(interestRef, {
+    requestId,
+    tutorUserId: tutor.id,
+    createdAt: serverTimestamp(),
+  });
+  return true;
+}
+
+export async function markUserNotificationsAsReadRecord(userId: string, notificationIds: string[]) {
+  assertConfigured();
+
+  if (notificationIds.length === 0) {
+    return;
+  }
+
+  const currentUserId = auth?.currentUser?.uid ?? null;
+  const currentEmail = normalizeEmail(auth?.currentUser?.email);
+
+  if (currentUserId !== userId && !isAdminEmail(currentEmail)) {
+    throw new Error('You can only update your own notifications.');
+  }
+
+  const notificationIdSet = new Set(notificationIds);
+  const snapshot = await getDocs(query(collection(db!, 'userNotifications'), where('userId', '==', userId)));
+  const batch = writeBatch(db!);
+  let pendingUpdates = 0;
+
+  snapshot.docs.forEach((docSnapshot) => {
+    if (!notificationIdSet.has(docSnapshot.id)) {
+      return;
+    }
+
+    const notification = mapUserNotification(docSnapshot.id, docSnapshot.data());
+    if (!notification.active || notification.readAt) {
+      return;
+    }
+
+    batch.update(docSnapshot.ref, {
+      readAt: serverTimestamp(),
+    });
+    pendingUpdates += 1;
+  });
+
+  if (pendingUpdates > 0) {
+    await batch.commit();
+  }
+}
+
+export async function clearUserNotificationsRecord(userId: string, notificationIds: string[]) {
+  assertConfigured();
+
+  if (notificationIds.length === 0) {
+    return;
+  }
+
+  const currentUserId = auth?.currentUser?.uid ?? null;
+  const currentEmail = normalizeEmail(auth?.currentUser?.email);
+
+  if (currentUserId !== userId && !isAdminEmail(currentEmail)) {
+    throw new Error('You can only clear your own notifications.');
+  }
+
+  const notificationIdSet = new Set(notificationIds);
+  const snapshot = await getDocs(query(collection(db!, 'userNotifications'), where('userId', '==', userId)));
+  const batch = writeBatch(db!);
+  let pendingUpdates = 0;
+
+  snapshot.docs.forEach((docSnapshot) => {
+    if (!notificationIdSet.has(docSnapshot.id)) {
+      return;
+    }
+
+    const notification = mapUserNotification(docSnapshot.id, docSnapshot.data());
+    if (!notification.active) {
+      return;
+    }
+
+    batch.update(docSnapshot.ref, {
+      active: false,
+      readAt: notification.readAt ?? serverTimestamp(),
+      clearedAt: serverTimestamp(),
+    });
+    pendingUpdates += 1;
+  });
+
+  if (pendingUpdates > 0) {
+    await batch.commit();
+  }
 }
 
 export async function createPlatformUpdateRecord(update: {

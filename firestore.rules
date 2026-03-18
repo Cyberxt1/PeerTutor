@@ -83,9 +83,64 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /courseRequests/{requestId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.requesterUserId == request.auth.uid
+        && request.resource.data.requesterRole in ['student', 'tutor']
+        && request.resource.data.courseCode is string
+        && request.resource.data.courseName is string
+        && request.resource.data.details is string
+        && request.resource.data.status == 'open';
+      allow update, delete: if isAdmin();
+    }
+
+    match /courseRequestInterests/{interestId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.tutorUserId == request.auth.uid
+        && request.resource.data.requestId is string
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'tutor';
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.tutorUserId == request.auth.uid);
+      allow update: if isAdmin();
+    }
+
     match /userNotifications/{notificationId} {
       allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create, update, delete: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.keys().hasOnly([
+            'userId',
+            'title',
+            'message',
+            'createdAt',
+            'createdByEmail',
+            'active',
+            'readAt',
+            'clearedAt',
+          ])
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.title == resource.data.title
+          && request.resource.data.message == resource.data.message
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdByEmail == resource.data.createdByEmail
+          && request.resource.data.active is bool
+          && (
+            request.resource.data.readAt == resource.data.readAt
+            || request.resource.data.readAt == null
+            || request.resource.data.readAt == request.time
+          )
+          && (
+            request.resource.data.clearedAt == resource.data.clearedAt
+            || request.resource.data.clearedAt == null
+            || request.resource.data.clearedAt == request.time
+          )
+        );
     }
   }
 }

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useApp } from '@/lib/context';
 import { Button } from '@/components/ui/button';
+import NotificationPanel from '@/components/notifications/notification-panel';
 import { cn } from '@/lib/utils';
 import { BookOpen, Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -109,6 +110,7 @@ export default function Header({ variant = 'default' }: { variant?: 'default' | 
                 </Link>
               )}
               <div className="flex items-center gap-4">
+                {!isAdmin && <NotificationPanel />}
                 <span className="text-sm text-muted-foreground">{currentUser.name}</span>
                 <Button onClick={() => void handleLogout()} variant="outline" size="sm">
                   Logout
@@ -180,13 +182,16 @@ export default function Header({ variant = 'default' }: { variant?: 'default' | 
         </nav>
 
         {/* Mobile Menu Button */}
-        <button
-          className="md:hidden p-2"
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          aria-label="Toggle menu"
-        >
-          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-2 md:hidden">
+          {currentUser && !isAdmin && <NotificationPanel />}
+          <button
+            className="p-2"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile Menu */}

@@ -124,6 +124,12 @@
   }
 }
 
+/* Hide Next.js devtools UI injected in development. */
+nextjs-portal,
+[data-nextjs-dev-overlay] {
+  display: none !important;
+}
+
 .scrollbar-hidden {
   -ms-overflow-style: none;
   scrollbar-width: none;

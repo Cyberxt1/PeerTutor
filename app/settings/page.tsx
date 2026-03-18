@@ -13,12 +13,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Switch } from '@/components/ui/switch';
 import { isAdminUser } from '@/lib/platform';
-import { AlertCircle, ArrowRightLeft, BookOpen, CheckCircle2, Loader2, MoonStar, UserRound } from 'lucide-react';
+import { AlertCircle, ArrowRightLeft, BookOpen, CheckCircle2, Loader2, MailCheck, MoonStar, RefreshCw, UserRound } from 'lucide-react';
 
 const MODE_SWITCH_NOTICE_KEY = 'campustutor-mode-switch-notice';
 
 export default function SettingsPage() {
-  const { currentUser, isLoading, reviews, getTutorByUserId, getBookings, updateUserProfile, switchUserRole } =
+  const { currentUser, isLoading, reviews, getTutorByUserId, getBookings, updateUserProfile, switchUserRole, refreshUser, sendEmailVerificationLink } =
     useApp();
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
@@ -32,6 +32,8 @@ export default function SettingsPage() {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'success' | 'error'>('success');
   const [isThemeReady, setIsThemeReady] = useState(false);
+  const [sendingVerification, setSendingVerification] = useState(false);
+  const [refreshingVerification, setRefreshingVerification] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !currentUser) {
@@ -132,6 +134,42 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSendVerification = async () => {
+    setSendingVerification(true);
+    setMessage('');
+
+    try {
+      const result = await sendEmailVerificationLink();
+      setMessageType('success');
+      setMessage(
+        result === 'already-verified'
+          ? 'Your email address is already verified.'
+          : 'Verification email sent. Check your inbox, click the link, then refresh your status here.'
+      );
+    } catch (error) {
+      setMessageType('error');
+      setMessage(error instanceof Error ? error.message : 'We could not send the verification email.');
+    } finally {
+      setSendingVerification(false);
+    }
+  };
+
+  const handleRefreshVerification = async () => {
+    setRefreshingVerification(true);
+    setMessage('');
+
+    try {
+      await refreshUser();
+      setMessageType('success');
+      setMessage('Verification status refreshed.');
+    } catch (error) {
+      setMessageType('error');
+      setMessage(error instanceof Error ? error.message : 'We could not refresh your verification status.');
+    } finally {
+      setRefreshingVerification(false);
+    }
+  };
+
   if (isLoading || !currentUser) {
     return (
       <>
@@ -148,6 +186,7 @@ export default function SettingsPage() {
   const isTutor = currentUser.role === 'tutor';
   const isAdmin = isAdminUser(currentUser);
   const isDarkMode = resolvedTheme === 'dark';
+  const isEmailVerified = Boolean(currentUser.emailVerified);
 
   if (isAdmin) {
     return (
@@ -162,6 +201,56 @@ export default function SettingsPage() {
                 The admin account only keeps appearance controls here. User management stays in the admin control center.
               </p>
             </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Email Verification</CardTitle>
+                <CardDescription>Verify the admin email so protected admin actions can run properly.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <MailCheck className="h-5 w-5 text-primary" />
+                      <p className="font-medium text-foreground">Verification Status</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {isEmailVerified ? 'Your admin email is verified.' : 'Verify this email to unlock protected admin actions.'}
+                    </p>
+                  </div>
+
+                  <span className={`rounded-full px-3 py-1 text-sm font-medium ${isEmailVerified ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}`}>
+                    {isEmailVerified ? 'Verified' : 'Not Verified'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button onClick={() => void handleSendVerification()} className="bg-primary hover:bg-primary/90" disabled={sendingVerification || refreshingVerification || isEmailVerified}>
+                    {sendingVerification ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      'Send Verification Email'
+                    )}
+                  </Button>
+                  <Button variant="outline" onClick={() => void handleRefreshVerification()} disabled={refreshingVerification || sendingVerification}>
+                    {refreshingVerification ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Refreshing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Refresh Status
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>
@@ -294,6 +383,56 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Email Verification</CardTitle>
+                  <CardDescription>Verify your email address so your account stays fully trusted.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <MailCheck className="h-5 w-5 text-primary" />
+                        <p className="font-medium text-foreground">Verification Status</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {isEmailVerified ? 'Your email is verified.' : 'Verify your email to unlock trusted account checks.'}
+                      </p>
+                    </div>
+
+                    <span className={`rounded-full px-3 py-1 text-sm font-medium ${isEmailVerified ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}`}>
+                      {isEmailVerified ? 'Verified' : 'Not Verified'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <Button onClick={() => void handleSendVerification()} className="bg-primary hover:bg-primary/90" disabled={sendingVerification || refreshingVerification || isEmailVerified}>
+                      {sendingVerification ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        'Send Verification Email'
+                      )}
+                    </Button>
+                    <Button variant="outline" onClick={() => void handleRefreshVerification()} disabled={refreshingVerification || sendingVerification}>
+                      {refreshingVerification ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Refreshing...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          Refresh Status
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Appearance</CardTitle>

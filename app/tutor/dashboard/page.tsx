@@ -6,14 +6,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useApp } from '@/lib/context';
 import PlatformUpdates from '@/components/dashboard/platform-updates';
-import UserNotifications from '@/components/dashboard/user-notifications';
+import CourseRequestBoard from '@/components/dashboard/course-request-board';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import MiniGuide from '@/components/dashboard/mini-guide';
 import { isAdminUser } from '@/lib/platform';
 import { Star, Calendar, Users, Zap, CheckCircle, Clock, TrendingUp } from 'lucide-react';
 
-const dashboardTabs = ['overview', 'sessions', 'students', 'earnings'] as const;
+const dashboardTabs = ['overview', 'sessions', 'students', 'requests', 'earnings'] as const;
 
 type DashboardTab = (typeof dashboardTabs)[number];
 
@@ -27,7 +27,6 @@ export default function TutorDashboard() {
   const {
     currentUser,
     platformUpdates,
-    userNotifications,
     getBookings,
     getCourseLabel,
     getReviews,
@@ -135,9 +134,9 @@ export default function TutorDashboard() {
           <MiniGuide
             userId={currentUser.id}
             role={currentUser.role}
-            createdAt={currentUser.createdAt}
+            signInCount={currentUser.signInCount}
             title="Here is the fastest way to get started as a tutor"
-            description="This short guide helps new tutors get comfortable with the platform during their first few days."
+            description="This short guide helps new tutors get comfortable with the platform during their first three sign-ins."
             steps={[
               'Open your tutor profile and add your bio, courses, rate, and availability so students can understand what you teach.',
               'Check booking requests often from the overview tab and confirm only the sessions that fit your schedule.',
@@ -152,11 +151,6 @@ export default function TutorDashboard() {
           <PlatformUpdates updates={platformUpdates} role={currentUser.role} />
         </div>
       )}
-
-      <div className="mb-8">
-        <UserNotifications notifications={userNotifications} />
-      </div>
-
       <div className="grid md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
           <Card key={stat.label}>
@@ -353,6 +347,13 @@ export default function TutorDashboard() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {activeTab === 'requests' && (
+        <div className="space-y-6">
+          <CourseRequestBoard mode="requester" />
+          <CourseRequestBoard mode="tutor" />
+        </div>
       )}
 
       {activeTab === 'earnings' && (

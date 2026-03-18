@@ -6,6 +6,8 @@ import { defaultSubjects } from '@/lib/catalog';
 import { DEFAULT_PLATFORM_SETTINGS, isAdminUser, type PlatformSettings } from '@/lib/platform';
 import { isFirebaseConfigured } from '@/lib/firebase/client';
 import {
+  createCourseRequestRecord,
+  clearUserNotificationsRecord,
   createBookingRecord,
   createPlatformUpdateRecord,
   createReviewRecord,
@@ -14,11 +16,15 @@ import {
   getCurrentUserProfile,
   loginWithEmail,
   logoutUser,
+  markUserNotificationsAsReadRecord,
+  sendEmailVerificationLinkRecord,
   sendPasswordResetLinkRecord,
   signupWithEmail,
   subscribeToAuth,
   subscribeToAllBookings,
   subscribeToBookings,
+  subscribeToCourseRequestInterests,
+  subscribeToCourseRequests,
   subscribeToPlatformUpdates,
   subscribeToPlatformSettings,
   subscribeToReviews,
@@ -26,6 +32,7 @@ import {
   subscribeToUserNotifications,
   subscribeToUsers,
   switchUserRoleRecord,
+  toggleCourseRequestInterestRecord,
   type StoredTutorProfile,
   updateBookingStatusRecord,
   updatePlatformSettingsRecord,
@@ -46,6 +53,8 @@ import {
 import type {
   AvailabilitySlot,
   Booking,
+  CourseRequest,
+  CourseRequestInterest,
   PlatformUpdate,
   Review,
   Subject,
@@ -69,6 +78,8 @@ interface AppContextType {
   reviews: Review[];
   platformUpdates: PlatformUpdate[];
   userNotifications: UserNotification[];
+  courseRequests: CourseRequest[];
+  courseRequestInterests: CourseRequestInterest[];
   login: (email: string, password: string) => Promise<User>;
   signup: (name: string, email: string, password: string, role: UserRole) => Promise<User>;
   logout: () => Promise<void>;
@@ -104,8 +115,13 @@ interface AppContextType {
   }) => Promise<PlatformUpdate>;
   updateUserAccountStatus: (user: User, status: 'active' | 'suspended' | 'deleted') => Promise<User>;
   sendUserNotification: (userId: string, title: string, message: string) => Promise<UserNotification>;
+  createCourseRequest: (courseCode: string, courseName: string, details: string) => Promise<CourseRequest>;
+  toggleCourseRequestInterest: (requestId: string) => Promise<boolean>;
+  markNotificationsAsRead: (notificationIds: string[]) => Promise<void>;
+  clearNotifications: (notificationIds: string[]) => Promise<void>;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => Promise<PlatformSettings>;
   sendPasswordResetLink: (email: string) => Promise<void>;
+  sendEmailVerificationLink: () => Promise<'sent' | 'already-verified'>;
   getTutorById: (tutorId: string) => TutorRecord | undefined;
   getTutorByUserId: (userId: string) => TutorRecord | undefined;
   getTutorCourseOptions: (tutorId: string) => Array<{ id: string; code: string; name: string; label: string }>;
@@ -144,6 +160,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [platformUpdates, setPlatformUpdates] = useState<PlatformUpdate[]>([]);
   const [userNotifications, setUserNotifications] = useState<UserNotification[]>([]);
+  const [courseRequests, setCourseRequests] = useState<CourseRequest[]>([]);
+  const [courseRequestInterests, setCourseRequestInterests] = useState<CourseRequestInterest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -185,6 +203,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isFirebaseConfigured) return undefined;
     return subscribeToPlatformUpdates(setPlatformUpdates);
+  }, []);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return undefined;
+    return subscribeToCourseRequests(setCourseRequests);
+  }, []);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return undefined;
+    return subscribeToCourseRequestInterests(setCourseRequestInterests);
   }, []);
 
   useEffect(() => {
@@ -237,6 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             name: profile.displayName,
             email: profile.email,
             role: 'tutor',
+            signInCount: 1,
             createdAt: profile.createdAt,
           })
       ),
@@ -261,6 +290,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       reviews,
       platformUpdates,
       userNotifications,
+      courseRequests,
+      courseRequestInterests,
       async login(email, password) {
         try {
           const user = await loginWithEmail(email, password);
@@ -414,6 +445,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw new Error(getReadableFirebaseError(error));
         }
       },
+      async createCourseRequest(courseCode, courseName, details) {
+        if (!currentUser) {
+          throw new Error('You need to be signed in.');
+        }
+
+        try {
+          return await createCourseRequestRecord(currentUser, {
+            courseCode,
+            courseName,
+            details,
+          });
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async toggleCourseRequestInterest(requestId) {
+        if (!currentUser) {
+          throw new Error('You need to be signed in.');
+        }
+
+        try {
+          return await toggleCourseRequestInterestRecord(requestId, currentUser);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async markNotificationsAsRead(notificationIds) {
+        if (!currentUser) {
+          throw new Error('You need to be signed in.');
+        }
+
+        try {
+          await markUserNotificationsAsReadRecord(currentUser.id, notificationIds);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async clearNotifications(notificationIds) {
+        if (!currentUser) {
+          throw new Error('You need to be signed in.');
+        }
+
+        try {
+          await clearUserNotificationsRecord(currentUser.id, notificationIds);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
       async updatePlatformSettings(settings) {
         if (!currentUser || !isAdminUser(currentUser)) {
           throw new Error('Only the configured admin can update platform settings.');
@@ -437,6 +516,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         try {
           await sendPasswordResetLinkRecord(email);
+        } catch (error) {
+          throw new Error(getReadableFirebaseError(error));
+        }
+      },
+      async sendEmailVerificationLink() {
+        if (!currentUser) {
+          throw new Error('You need to be signed in.');
+        }
+
+        try {
+          const result = await sendEmailVerificationLinkRecord();
+          const refreshed = await getCurrentUserProfile(currentUser.id);
+          if (refreshed) {
+            setCurrentUser(refreshed);
+          }
+          return result;
         } catch (error) {
           throw new Error(getReadableFirebaseError(error));
         }
@@ -466,7 +561,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return getUserById(visibleUsers, userId);
       },
     };
-  }, [bookings, currentUser, isAdmin, isLoading, platformSettings, platformUpdates, reviews, tutors, userNotifications, users, visibleUsers]);
+  }, [bookings, courseRequestInterests, courseRequests, currentUser, isAdmin, isLoading, platformSettings, platformUpdates, reviews, tutors, userNotifications, users, visibleUsers]);
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }

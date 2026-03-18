@@ -27,6 +27,8 @@ export async function POST(
       createdByEmail: adminRequest.adminEmail,
       createdAt: getServerTimestamp(),
       active: true,
+      readAt: null,
+      clearedAt: null,
     });
 
     return NextResponse.json({ ok: true });

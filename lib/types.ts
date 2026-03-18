@@ -5,7 +5,9 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  emailVerified?: boolean;
   role: UserRole;
+  signInCount: number;
   accountStatus?: AccountStatus;
   profileImage?: string;
   bio?: string;
@@ -108,4 +110,24 @@ export interface UserNotification {
   createdAt: Date;
   createdByEmail: string;
   active: boolean;
+  readAt: Date | null;
+  clearedAt: Date | null;
+}
+
+export interface CourseRequest {
+  id: string;
+  requesterUserId: string;
+  requesterRole: UserRole;
+  courseCode: string;
+  courseName: string;
+  details: string;
+  status: 'open' | 'closed';
+  createdAt: Date;
+}
+
+export interface CourseRequestInterest {
+  id: string;
+  requestId: string;
+  tutorUserId: string;
+  createdAt: Date;
 }

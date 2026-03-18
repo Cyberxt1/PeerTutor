@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useApp } from '@/lib/context';
 import PlatformUpdates from '@/components/dashboard/platform-updates';
-import UserNotifications from '@/components/dashboard/user-notifications';
+import CourseRequestBoard from '@/components/dashboard/course-request-board';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import MiniGuide from '@/components/dashboard/mini-guide';
@@ -16,8 +16,8 @@ import { Star, Calendar, Book, CheckCircle, Clock } from 'lucide-react';
 const MODE_SWITCH_NOTICE_KEY = 'campustutor-mode-switch-notice';
 
 export default function StudentDashboard() {
-  const { currentUser, reviews, platformUpdates, userNotifications, getBookings, getCourseLabel, getTutorById } = useApp();
-  const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'sessions' | 'reviews'>('overview');
+  const { currentUser, reviews, platformUpdates, getBookings, getCourseLabel, getTutorById } = useApp();
+  const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'sessions' | 'reviews' | 'requests'>('overview');
   const router = useRouter();
 
   useEffect(() => {
@@ -71,9 +71,9 @@ export default function StudentDashboard() {
           <MiniGuide
             userId={currentUser.id}
             role={currentUser.role}
-            createdAt={currentUser.createdAt}
+            signInCount={currentUser.signInCount}
             title="Here is the fastest way to get started as a learner"
-            description="This short guide appears for brand new accounts so it is easier to settle in and make your first booking."
+            description="This short guide appears during your first three sign-ins so it is easier to settle in and make your first booking."
             steps={[
               'Browse tutors and open a profile that matches the course or subject you need help with.',
               'Send a booking request with your preferred date and time, then watch for confirmation in your bookings tab.',
@@ -88,11 +88,6 @@ export default function StudentDashboard() {
           <PlatformUpdates updates={platformUpdates} role={currentUser.role} />
         </div>
       )}
-
-      <div className="mb-8">
-        <UserNotifications notifications={userNotifications} />
-      </div>
-
       <div className="grid md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
           <Card key={stat.label}>
@@ -108,7 +103,7 @@ export default function StudentDashboard() {
       </div>
 
       <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-        {(['overview', 'bookings', 'sessions', 'reviews'] as const).map((tab) => (
+        {(['overview', 'bookings', 'sessions', 'reviews', 'requests'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -317,6 +312,8 @@ export default function StudentDashboard() {
           </CardContent>
         </Card>
       )}
+
+      {activeTab === 'requests' && <CourseRequestBoard mode="requester" />}
     </div>
   );
 }

@@ -6,23 +6,20 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { UserRole } from '@/lib/types';
 
-const GUIDE_WINDOW_IN_MS = 7 * 24 * 60 * 60 * 1000;
-
 type MiniGuideProps = {
   userId: string;
   role: UserRole;
-  createdAt: Date;
+  signInCount: number;
   title: string;
   description: string;
   steps: string[];
 };
 
-export default function MiniGuide({ userId, role, createdAt, title, description, steps }: MiniGuideProps) {
+export default function MiniGuide({ userId, role, signInCount, title, description, steps }: MiniGuideProps) {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const isNewEnough = Date.now() - createdAt.getTime() <= GUIDE_WINDOW_IN_MS;
-    if (!isNewEnough) return;
+    if (signInCount > 3) return;
 
     const storageKey = `campustutor-mini-guide-dismissed:${userId}:${role}`;
     const isDismissed = window.localStorage.getItem(storageKey) === 'true';
@@ -30,7 +27,7 @@ export default function MiniGuide({ userId, role, createdAt, title, description,
     if (!isDismissed) {
       setIsVisible(true);
     }
-  }, [createdAt, role, userId]);
+  }, [role, signInCount, userId]);
 
   const handleDismiss = () => {
     window.localStorage.setItem(`campustutor-mini-guide-dismissed:${userId}:${role}`, 'true');
